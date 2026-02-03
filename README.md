@@ -18,8 +18,8 @@ Deep learning approaches for solving the three-body problem: trajectory predicti
 
 #### 1. Create project directory
 ```bash
-mkdir three_body_dl
-cd three_body_dl
+mkdir deeplearningapp3bp
+cd deeplearningapp3bp
 ```
 
 #### 2. Create virtual environment
