@@ -11,7 +11,7 @@ from sklearn.linear_model import LogisticRegression
 
 def build_mlp_classifier(input_dim=4, n_classes=4):
     """Simple MLP for classification"""
-    model = keras.Sequential([
+    model = tf.keras.Sequential([
         layers.Input(shape=(input_dim,)),
         layers.Dense(64, activation='relu'),
         layers.Dropout(0.3),
@@ -31,7 +31,7 @@ def build_mlp_classifier(input_dim=4, n_classes=4):
 
 def build_lstm_classifier(input_dim=4, n_classes=4):
     """LSTM for classification (takes sequence input)"""
-    model = keras.Sequential([
+    model = tf.keras.Sequential([
         layers.Input(shape=(None, input_dim)),  # Variable length sequences
         layers.LSTM(64, return_sequences=True),
         layers.LSTM(32),
@@ -50,7 +50,7 @@ def build_lstm_classifier(input_dim=4, n_classes=4):
 
 def build_lstm_predictor(input_length=50, input_dim=4, output_length=10):
     """LSTM for trajectory prediction"""
-    model = keras.Sequential([
+    model = tf.keras.Sequential([
         layers.Input(shape=(input_length, input_dim)),
         layers.LSTM(128, return_sequences=True),
         layers.Dropout(0.2),
@@ -73,7 +73,7 @@ def build_lstm_predictor(input_length=50, input_dim=4, output_length=10):
 
 def build_gru_predictor(input_length=50, input_dim=4, output_length=10):
     """GRU for trajectory prediction"""
-    model = keras.Sequential([
+    model = tf.keras.Sequential([
         layers.Input(shape=(input_length, input_dim)),
         layers.GRU(128, return_sequences=True),
         layers.Dropout(0.2),
