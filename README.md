@@ -10,14 +10,44 @@ Deep learning approaches for solving the three-body problem: trajectory predicti
 
 ## Setup
 
-### Requirements
+### Prerequisites
+- Python 3.8 or higher
+- pip
+
+### Installation
+
+#### 1. Create project directory
+```bash
+mkdir three_body_dl
+cd three_body_dl
+```
+
+#### 2. Create virtual environment
+```bash
+python -m venv venv
+```
+
+#### 3. Activate virtual environment
+
+**Windows:**
+```bash
+venv\Scripts\activate
+```
+
+**Mac/Linux:**
+```bash
+source venv/bin/activate
+```
+
+#### 4. Install dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
 ### Quick Start
+
+#### Run all experiments
 ```bash
-# Run all experiments
 python run_all.py
 ```
 
@@ -26,6 +56,8 @@ This will:
 2. Train classification models (~10 minutes)
 3. Train prediction models (~30-60 minutes)
 4. Discover equilibrium points (~5 minutes)
+
+**Total estimated time: 2-3 hours**
 
 ### Run Individual Components
 ```bash
@@ -42,9 +74,16 @@ python train_prediction.py
 python discover_equilibria.py
 ```
 
+### Deactivate virtual environment
+When you're done working:
+```bash
+deactivate
+```
+
 ## Project Structure
 ```
-.
+three_body_dl/
+├── venv/                        # Virtual environment (created by you)
 ├── requirements.txt              # Dependencies
 ├── data_generation.py           # Generate trajectory dataset
 ├── preprocessing.py             # Prepare data for ML
@@ -53,7 +92,8 @@ python discover_equilibria.py
 ├── train_prediction.py          # RQ1: Trajectory prediction
 ├── discover_equilibria.py       # RQ3: Equilibrium discovery
 ├── run_all.py                   # Main workflow script
-└── README.md                    # This file
+├── README.md                    # This file
+└── .gitignore                   # Git ignore file
 ```
 
 ## Outputs
@@ -97,7 +137,6 @@ This project is based on the restricted circular three-body problem from celesti
 
 ## Citation
 
-If you use this code, please cite:
 ```
 Ciocan, C.M. (2024). The 2 and 3 Body Problems. 
 Bachelor's Thesis, Babeș-Bolyai University.
