@@ -131,16 +131,10 @@ three_body_dl/
 
 This project is based on the restricted circular three-body problem from celestial mechanics:
 
-- **Equations of motion** (5.10): Synodic frame differential equations
-- **Jacobi integral** (5.12): Conserved quantity in rotating frame
-- **Lagrange points** (Section 3.4): Equilibrium solutions
+- **Equations of motion**: Synodic frame differential equations
+- **Jacobi integral**: Conserved quantity in rotating frame
+- **Lagrange points**: Equilibrium solutions
 
-## Citation
-
-```
-Ciocan, C.M. (2024). The 2 and 3 Body Problems. 
-Bachelor's Thesis, Babeș-Bolyai University.
-```
 
 ## License
 
