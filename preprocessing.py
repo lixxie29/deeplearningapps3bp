@@ -17,120 +17,137 @@ class DataPreprocessor:
     
     def prepare_classification_data(self):
         """
-        Prepare data for RQ2: Stability classification
-        
-        Returns:
-        - X: initial conditions [n_samples, 4] (xi, eta, vxi, veta)
-        - y: labels [n_samples] (0=stable, 1=chaotic, 2=escape, 3=collision)
+        Prepare data for RQ2: Stability classification.
+
+        Features (4D initial state):
+        - xi:   x-coordinate in rotating frame
+        - eta:  y-coordinate in rotating frame
+        - vxi:  x-velocity
+        - veta: y-velocity
+
+        Labels:
+        - 0: Stable
+        - 1: Chaotic
+        - 2: Escape
+        - 3: Collision
+
+        Input shape:  [N, 4]
+        Output shape: [N] (integer class labels)
+
+        Returns dict with X_train, X_val, X_test, y_train, y_val, y_test, scaler
         """
         X = []
         y = []
-        
+
         for data in self.dataset:
             X.append(data['initial_state'])
             y.append(data['label'])
-        
+
         X = np.array(X)
         y = np.array(y)
-        
-        # Split data
+
+        # Split data (stratified to preserve class ratios)
         X_train, X_temp, y_train, y_temp = train_test_split(
             X, y, test_size=0.3, random_state=42, stratify=y
         )
         X_val, X_test, y_val, y_test = train_test_split(
             X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp
         )
-        
+
         # Normalize
         scaler = StandardScaler()
         X_train = scaler.fit_transform(X_train)
-        X_val = scaler.transform(X_val)
-        X_test = scaler.transform(X_test)
-        
+        X_val   = scaler.transform(X_val)
+        X_test  = scaler.transform(X_test)
+
+        print(f"\n{'='*50}")
+        print(f"Classification Dataset Statistics")
+        print(f"{'='*50}")
+        print(f"Total: {len(y)}, Train: {len(y_train)}, Val: {len(y_val)}, Test: {len(y_test)}")
+        label_names = {0: 'Stable', 1: 'Chaotic', 2: 'Escape', 3: 'Collision'}
+        unique, counts = np.unique(y_train, return_counts=True)
+        print("Class distribution (train):")
+        for label, count in zip(unique, counts):
+            print(f"  {label_names[label]}: {count} ({100*count/len(y_train):.1f}%)")
+        print(f"{'='*50}\n")
+
         return {
             'X_train': X_train,
-            'X_val': X_val,
-            'X_test': X_test,
+            'X_val':   X_val,
+            'X_test':  X_test,
             'y_train': y_train,
-            'y_val': y_val,
-            'y_test': y_test,
-            'scaler': scaler
+            'y_val':   y_val,
+            'y_test':  y_test,
+            'scaler':  scaler
         }
     
     def prepare_prediction_data(self, input_length=50, output_length=10):
         """
-        Prepare data for RQ1: Trajectory prediction
-        
+        Prepare data for RQ1: Trajectory prediction.
+
+        Trajectories are split 70/15/15 BEFORE sequence creation to prevent
+        data leakage. Sequences are then built within each split independently.
+
+        Input shape:  [N, input_length, 4]  — [xi, eta, vxi, veta] per timestep
+        Output shape: [N, output_length, 4]
+
         Parameters:
-        - input_length: number of past timesteps to use
-        - output_length: number of future timesteps to predict
-        
-        Returns sequences for LSTM/GRU training
+        - input_length:  number of past timesteps (default 50)
+        - output_length: number of future timesteps to predict (default 10)
+
+        Returns dict with X_train, X_val, X_test, y_train, y_val, y_test, scaler
         """
-        X = []  # Input sequences
-        y = []  # Target sequences
-        
-        for data in self.dataset:
-            # Only use stable and chaotic trajectories (not escapes/collisions)
-            if data['label'] in [0, 1]:
+
+        # Step 1: Split trajectories first (prevents data leakage)
+        train_trajs, temp_trajs = train_test_split(
+            self.dataset, test_size=0.3, random_state=42
+        )
+        val_trajs, test_trajs = train_test_split(
+            temp_trajs, test_size=0.5, random_state=42
+        )
+
+        # Step 2: Create sliding-window sequences within each split
+        def create_sequences(trajectories, input_len, output_len):
+            X, y = [], []
+            for data in trajectories:
                 trajectory = data['trajectory']
-                
-                # Create sliding windows
-                for i in range(len(trajectory) - input_length - output_length):
-                    X.append(trajectory[i:i+input_length])
-                    y.append(trajectory[i+input_length:i+input_length+output_length])
-        
-        X = np.array(X)  # Shape: [n_samples, input_length, 4]
-        y = np.array(y)  # Shape: [n_samples, output_length, 4]
-        
-        # Split data
-        X_train, X_temp, y_train, y_temp = train_test_split(
-            X, y, test_size=0.3, random_state=42
-        )
-        X_val, X_test, y_val, y_test = train_test_split(
-            X_temp, y_temp, test_size=0.5, random_state=42
-        )
-        
-        # Normalize
-        # Flatten for scaling
-        n_train = X_train.shape[0]
-        X_train_flat = X_train.reshape(-1, 4)
+                for i in range(len(trajectory) - input_len - output_len):
+                    X.append(trajectory[i:i+input_len])
+                    y.append(trajectory[i+input_len:i+input_len+output_len])
+            return np.array(X), np.array(y)
+
+        X_train, y_train = create_sequences(train_trajs, input_length, output_length)
+        X_val,   y_val   = create_sequences(val_trajs,   input_length, output_length)
+        X_test,  y_test  = create_sequences(test_trajs,  input_length, output_length)
+
+        # Step 3: Normalize — fit scaler on train only
+        n_train, n_val, n_test = X_train.shape[0], X_val.shape[0], X_test.shape[0]
+
         scaler = StandardScaler()
-        X_train_flat = scaler.fit_transform(X_train_flat)
-        X_train = X_train_flat.reshape(n_train, input_length, 4)
-        
-        # Apply to val and test
-        n_val = X_val.shape[0]
-        X_val_flat = X_val.reshape(-1, 4)
-        X_val_flat = scaler.transform(X_val_flat)
-        X_val = X_val_flat.reshape(n_val, input_length, 4)
-        
-        n_test = X_test.shape[0]
-        X_test_flat = X_test.reshape(-1, 4)
-        X_test_flat = scaler.transform(X_test_flat)
-        X_test = X_test_flat.reshape(n_test, input_length, 4)
-        
-        # Also scale targets
-        y_train_flat = y_train.reshape(-1, 4)
-        y_train_flat = scaler.transform(y_train_flat)
-        y_train = y_train_flat.reshape(n_train, output_length, 4)
-        
-        y_val_flat = y_val.reshape(-1, 4)
-        y_val_flat = scaler.transform(y_val_flat)
-        y_val = y_val_flat.reshape(n_val, output_length, 4)
-        
-        y_test_flat = y_test.reshape(-1, 4)
-        y_test_flat = scaler.transform(y_test_flat)
-        y_test = y_test_flat.reshape(n_test, output_length, 4)
-        
+        X_train = scaler.fit_transform(X_train.reshape(-1, 4)).reshape(n_train, input_length, 4)
+        X_val   = scaler.transform(X_val.reshape(-1, 4)).reshape(n_val,   input_length, 4)
+        X_test  = scaler.transform(X_test.reshape(-1, 4)).reshape(n_test,  input_length, 4)
+
+        y_train = scaler.transform(y_train.reshape(-1, 4)).reshape(n_train, output_length, 4)
+        y_val   = scaler.transform(y_val.reshape(-1, 4)).reshape(n_val,   output_length, 4)
+        y_test  = scaler.transform(y_test.reshape(-1, 4)).reshape(n_test,  output_length, 4)
+
+        print(f"\n{'='*50}")
+        print(f"Prediction Dataset Statistics (No Data Leakage)")
+        print(f"{'='*50}")
+        print(f"Trajectories — Train: {len(train_trajs)}, Val: {len(val_trajs)}, Test: {len(test_trajs)}")
+        print(f"Sequences    — Train: {n_train}, Val: {n_val}, Test: {n_test}")
+        print(f"Input shape: {X_train.shape}, Output shape: {y_train.shape}")
+        print(f"{'='*50}\n")
+
         return {
             'X_train': X_train,
-            'X_val': X_val,
-            'X_test': X_test,
+            'X_val':   X_val,
+            'X_test':  X_test,
             'y_train': y_train,
-            'y_val': y_val,
-            'y_test': y_test,
-            'scaler': scaler
+            'y_val':   y_val,
+            'y_test':  y_test,
+            'scaler':  scaler
         }
     
     def prepare_equilibrium_data(self):

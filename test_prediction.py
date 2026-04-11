@@ -6,7 +6,31 @@ Loads saved models and evaluates them on test data
 import numpy as np
 import pickle
 import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
 from preprocessing import DataPreprocessor
+
+
+def test_no_data_leakage():
+    """Assert no trajectory appears in more than one split."""
+    preprocessor = DataPreprocessor('three_body_dataset.pkl')
+
+    train_trajs, temp_trajs = train_test_split(
+        preprocessor.dataset, test_size=0.3, random_state=42
+    )
+    val_trajs, test_trajs = train_test_split(
+        temp_trajs, test_size=0.5, random_state=42
+    )
+
+    train_ids = set(id(t) for t in train_trajs)
+    val_ids   = set(id(t) for t in val_trajs)
+    test_ids  = set(id(t) for t in test_trajs)
+
+    assert len(train_ids & val_ids)  == 0, "LEAKAGE: train and val share trajectories!"
+    assert len(train_ids & test_ids) == 0, "LEAKAGE: train and test share trajectories!"
+    assert len(val_ids   & test_ids) == 0, "LEAKAGE: val and test share trajectories!"
+
+    print("No data leakage detected.")
+    return True
 
 def test_prediction_models():
     """Test saved prediction models"""
@@ -14,7 +38,11 @@ def test_prediction_models():
     print("="*70)
     print(" TESTING PREDICTION MODELS (RQ1)")
     print("="*70)
-    
+
+    # Verify no data leakage before running tests
+    print("\nChecking for data leakage...")
+    test_no_data_leakage()
+
     # Load test data
     print("\nLoading test data...")
     preprocessor = DataPreprocessor('three_body_dataset.pkl')
