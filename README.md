@@ -25,6 +25,8 @@ cd deeplearningapp3bp
 #### 2. Create virtual environment
 ```bash
 python -m venv venv
+--or
+python3 -m venv venv
 ```
 
 #### 3. Activate virtual environment
