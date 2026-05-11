@@ -7,7 +7,7 @@ import numpy as np
 import pickle
 import time
 from preprocessing import DataPreprocessor
-from models import build_lstm_predictor, build_gru_predictor
+from models import build_lstm_predictor, build_gru_predictor, build_transformer_predictor
 import matplotlib.pyplot as plt
 import tensorflow as tf
 
