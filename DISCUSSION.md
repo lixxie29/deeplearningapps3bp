@@ -163,6 +163,23 @@ Collision requires the particle to actually reach a primary (distance < 0.01). W
 **Escape orbits — pure random:**
 Escape is the natural outcome of most random initial conditions and requires no targeting. The sampler uses the original uniform distribution and accepts escape trajectories until the quota is filled.
 
+### ODE Solver Convergence Failures and Data Quality
+
+The numerical integrator (scipy's `odeint`, which uses the LSODA algorithm) occasionally fails to converge when integrating near-collision trajectories. This manifests as warnings of the form:
+
+```
+lsoda -- at t (=r1) and step size h (=r2), the corrector convergence failed repeatedly or with abs(h) = hmin
+lsoda -- warning: internal t and h are such that t + h = t on the next step
+```
+
+Both warnings indicate the same underlying problem: the ODE has become numerically stiff because the particle is approaching a primary body. The gravitational acceleration grows as `1/r²`, so at small distances the force changes rapidly over tiny time intervals, forcing the adaptive step size down to machine precision. At that point the solver cannot make further progress.
+
+These failures are handled explicitly: `generate_single_trajectory` wraps the integration in a try/except block and checks the output for NaN or non-finite values. Any trajectory that triggers a convergence failure returns `None` and is silently discarded. No partially-integrated or numerically corrupt trajectory enters the dataset.
+
+The practical consequence is that the attempt count during balanced generation is substantially higher than the collected trajectory count. This is expected, particularly for the collision-targeted sampler which deliberately places the particle close to a primary — a region where stiffness is common. The 85% completion progress at 17 minutes shown during a sample run reflects this: approximately one in three collision-targeted integration attempts fails and is discarded before the solver produces a valid trajectory.
+
+This is also relevant to the Chaotic class. The most extreme near-collision bounded orbits — which would likely be classified as Chaotic due to large Jacobi constant variation — are disproportionately filtered out by convergence failures, since they require the particle to pass extremely close to a primary without actually colliding. The Chaotic trajectories that do survive in the dataset represent a somewhat less extreme subset of bounded high-variation orbits.
+
 ### Resulting Distribution
 
 The balanced generator targets `{Stable: 1500, Chaotic: 750, Escape: 1500, Collision: 750}` for a total of 4,500 trajectories split roughly 33%/17%/33%/17%. This is deliberately not perfectly equal — Escape and Stable are the most physically representative classes, and giving Chaotic and Collision 17% each rather than 25% avoids over-representing pathological edge cases at the expense of the dominant dynamics.
