@@ -1,4 +1,184 @@
 # Results Discussion
+nohup python run_all.py > training_log.txt 2>&1 &
+---
+
+## Literature Review
+
+### Breen et al. (2019) — Newton vs the Machine
+
+Breen, Foley, Boekholt, and Portegies Zwart published "Newton vs the machine: solving the chaotic three-body problem using deep neural networks" (arXiv:1910.07291) in October 2019. The paper is a proof-of-concept study demonstrating that a deep feed-forward artificial neural network (ANN) can produce accurate solutions to the gravitational three-body problem over a fixed time interval, at a fraction of the computational cost of a traditional numerical integrator.
+
+#### Motivation and Context
+
+The three-body problem — determining the trajectories of three mutually gravitating bodies given their initial positions and velocities — has no general closed-form solution. Since Poincaré established its non-integrability in the late nineteenth century, numerical integration has been the only practical route to solutions. The chaotic nature of the system means that even small errors in initial conditions grow exponentially, making long-term predictions fundamentally uncertain (Miller 1964; Valtonen et al. 2016).
+
+The standard approach is a high-precision numerical integrator. The authors use Brutus (Boekholt & Portegies Zwart 2015), which iteratively reduces its tolerance parameter and word length (numerical precision in bits) until two independent runs with different settings agree to within a phase-distance threshold. This guarantees convergence but is computationally expensive: the authors report over ten days of CPU time to produce their 10,000-simulation training dataset, with individual simulations near the singular point ((-0.5, 0), where two particles approach collision) taking particularly long.
+
+The astrophysical motivation is practical. Three-body interactions — specifically between a black-hole binary and a single black-hole — form the primary computational bottleneck in simulating the evolution of globular star clusters and galactic nuclei. These interactions occur over bounded time windows and can be integrated independently of the surrounding cluster (Portegies Zwart & McMillan 2018). Replacing Brutus with a fast neural network for these sub-problems would make large-scale N-body simulations substantially more tractable.
+
+#### Methodology
+
+The authors simplify the three-body problem to a learnable form through a sequence of physical and coordinate constraints. They restrict the system to three equal-mass particles with zero initial velocities, moving in a two-dimensional plane. The most distant particle (x1) is placed at (1, 0), setting the length unit and orientating the x-axis. The particle nearest to the barycentre (x2) is placed randomly in the left semicircle (x ≤ 0), orientating the positive y-axis. The third particle (x3) is determined by symmetry, and the origin is taken as the centre of mass. Under these constraints, the entire initial configuration is described by two parameters — the (x, y) coordinates of x2 — and the solution at any time t is described by four numbers: the positions of x1 and x2 (x3 follows from centre-of-mass conservation: x3 = −x1 − x2). The general solution is therefore a mapping from the three-dimensional phase-space (t, x2_0, y2_0) to the four-dimensional output (x1(t), y1(t), x2(t), y2(t)).
+
+The network architecture is a feed-forward ANN with ten hidden layers of 128 nodes each, using ReLU activations and a linear output layer. It is trained with Adam, MAE loss, a batch size of 5,000, and 10,000 epochs. Training and validation datasets comprise 9,900 and 100 simulations respectively, each yielding up to 2,561 time-stamped position snapshots. The authors partition the data into three time-horizon subsets (T ≤ 3.9, T ≤ 7.8, T ≤ 10) and find that the T ≤ 3.9 model achieves the lowest validation MAE — a consequence of chaotic divergence making longer trajectories harder to learn.
+
+#### Results
+
+The best-performing network achieves a validation MAE ≤ 0.1 and produces trajectories visually indistinguishable from Brutus solutions across both seen (training set) and unseen (validation set) initialisations. Critically, the network runs in approximately 10⁻³ seconds per query — on average 10⁵ times faster than Brutus, and up to 10⁸ times faster in the most challenging near-collision regimes where Brutus requires extreme precision.
+
+The authors further verify that the network reproduces the defining characteristic of chaos: sensitive dependence on initial conditions. Across 1,000 realisations with x2 placed on a ring of radius 0.01 centred at (−0.2, 0.3), the ANN-predicted trajectory divergence closely matches Brutus. Lyapunov exponents estimated from 4,000 pairs of perturbed realisations (perturbation δ = 10⁻⁶) give a median value of 1.30, consistent with chaotic behaviour, and the ANN reproduces these estimates accurately. This is notable because the network was never explicitly trained on chaos — it emerges from the learned solution function.
+
+Energy conservation is assessed by training a second ANN on velocities (differentiating the position network is theoretically possible but the authors opt for a separate network). The raw output carries a relative energy error of ~10⁻². A post-processing projection layer — a small Nelder-Mead optimisation that adjusts coordinates to lie on the correct energy surface while staying close to the ANN prediction — reduces this to ~10⁻⁵.
+
+#### Limitations
+
+The authors acknowledge several constraints. The setup is restricted to equal-mass particles with zero initial velocities, which covers only a small region of the full three-body phase space. The near-singular region around (−0.5, 0) — where x2 and x3 are nearly coincident — could not be resolved even with Brutus at the predetermined precision, so those initialisations are excluded from training. The network's bounded time interval is a hard constraint: training on T ≤ 3.9 produces the most accurate model, but the system cannot be queried outside this window without retraining or chaining multiple network evaluations. The energy projection layer is applied post-hoc and involves a non-trivial optimisation at inference time, partially undermining the fixed-cost claim for energy-conserving predictions.
+
+#### Contribution to the Field
+
+The paper's primary contribution is demonstrating that a neural network trained on arbitrarily precise numerical solutions can serve as a surrogate integrator for chaotic systems, reproducing not just position accuracy but statistical properties like the Lyapunov exponent. It sits within a broader trend of physics-informed machine learning and neural solvers for differential equations (Pathak et al. 2018; Raissi et al. 2019; Stinis 2019), but distinguishes itself by operating on a physically meaningful, long-studied chaotic system where ground truth is expensive rather than cheap. The proposed hybrid numerical integrator — where the ANN handles computationally challenging regions and hands off to a traditional integrator elsewhere — points toward a practical deployment path that subsequent work in the field has expanded upon.
+
+---
+
+## Breen et al. (2019) Baseline — Detailed Breakdown
+
+### Why the Three-Body Problem Can Be Treated as Regression
+
+The standard framing of the three-body problem is simulation: given a state at time t, step forward to t + Δt and repeat. Every step costs computation, errors accumulate, and chaotic regions force the step size toward zero.
+
+The Breen et al. reframing is different. The true solution to the three-body problem is a function:
+
+```
+f(t, initial_conditions) → positions of all bodies at time t
+```
+
+This function exists — it is the analytical solution nobody has written down. It takes a finite-dimensional input (time plus a few numbers describing the initial state) and returns a finite-dimensional output (particle coordinates). That structure is exactly what a neural network approximates. The Universal Approximation Theorem (Hornik 1991; Cybenko 1989) guarantees that a sufficiently deep and wide MLP can approximate any continuous function of this type to arbitrary precision.
+
+Once trained, querying the network costs one forward pass at fixed computational cost, independent of the difficulty of the initial conditions. There is no iteration, no adaptive step size, and no precision budget — the chaos of the system is absorbed into the training process rather than the inference process.
+
+### Physical Setup and Symmetry Reduction
+
+The paper does not attempt to learn the fully general three-body problem — that would require a much larger input space and far more training data. Instead, they apply a sequence of constraints that reduce the initial condition space to just two free parameters.
+
+**Constraints applied:**
+
+- Three equal masses — removes the two mass ratio parameters
+- Zero initial velocities — removes all six velocity parameters
+- Motion in a plane — removes the z-dimension
+- x1 fixed at (1, 0) — sets the length unit, removes two position parameters
+- x3 is the mirror of x2 across the x-axis — by symmetry, only x2 needs specifying
+- Centre of mass at origin — x3 can always be recovered as x3 = −x1 − x2
+
+After these reductions, the entire initial state of the system is described by two numbers: the (x, y) coordinates of x2, which is constrained to lie in the left unit semicircle (x ≤ 0). A singular point exists at (−0.5, 0) where x2 and x3 coincide — trajectories initialised near this point cause near-collision orbits that even Brutus struggles to resolve, and they are excluded from training.
+
+The network input is therefore `[t, x2_0, y2_0]` — three scalars. The output is `[x1(t), y1(t), x2(t), y2(t)]` — four scalars. x3(t) is free: x3 = −x1 − x2.
+
+### Architecture
+
+```
+Input layer:  3 nodes  [t, x2_0, y2_0]
+
+Hidden layer 1:   128 nodes, ReLU
+Hidden layer 2:   128 nodes, ReLU
+Hidden layer 3:   128 nodes, ReLU
+Hidden layer 4:   128 nodes, ReLU
+Hidden layer 5:   128 nodes, ReLU
+Hidden layer 6:   128 nodes, ReLU
+Hidden layer 7:   128 nodes, ReLU
+Hidden layer 8:   128 nodes, ReLU
+Hidden layer 9:   128 nodes, ReLU
+Hidden layer 10:  128 nodes, ReLU
+
+Output layer:  4 nodes, linear  [x1(t), y1(t), x2(t), y2(t)]
+```
+
+The architecture was arrived at empirically: starting from 5 hidden layers with 32 nodes, width and depth were increased until the network accurately reproduced complex close-encounter trajectories. Transposed convolution (deconvolution) layers were also evaluated but underperformed dense layers by MAE.
+
+**Loss function — MAE over MSE:** In chaotic systems, close-encounter events produce large but physically valid spikes in position error. MSE penalises these quadratically, causing the optimiser to spend disproportionate effort on rare extreme cases. MAE treats all errors equally, producing a more robust training signal when the error distribution has heavy tails.
+
+**Optimiser — Adam over alternatives:** AdaGrad and Nesterov SGD were tested and "regularly failed to match the performance of Adam." Adam's adaptive per-parameter learning rates are well-suited to loss landscapes with varying curvature, which is expected for a chaotic function.
+
+**Batch size 5,000 and 10,000 epochs:** Large batch sizes produce stable gradient estimates and allow the optimiser to make consistent progress. With ~9.9 million training samples (for T ≤ 3.9), 10,000 epochs is computationally manageable and the loss curves show most learning happens in the first ~100 epochs, followed by slow refinement.
+
+### Training Data and the Role of Brutus
+
+The network has no access to the equations of motion during training — it learns purely from input-output pairs. The quality of the training data therefore sets a ceiling on the network's accuracy. This is why Brutus is essential: a lower-precision integrator would inject systematic errors into the training labels, and the network would learn an approximation of an approximation.
+
+Each simulation runs for up to T = 10 time units, producing ~2,561 discrete position snapshots. Each snapshot becomes one training sample: `(t, x2_0, y2_0) → (x1, y1, x2, y2)`. For the T ≤ 3.9 case this gives roughly 1,000 samples per simulation × 9,900 simulations = 9.9 million training samples. Generating this data required over ten days of CPU time.
+
+**Why the T ≤ 3.9 model outperforms T ≤ 10:** Lyapunov exponents estimated in the paper have a median of 1.30, meaning perturbations grow by a factor of e ≈ 2.7 per time unit on average. By T = 10, a perturbation of 10⁻⁶ has grown to ~10⁻⁶ × e¹³ ≈ 0.44 — the solution at T = 10 is fundamentally more complex and variable across nearby initialisations than at T = 3.9. A network with the same architecture has to learn a harder function for the longer time horizon, resulting in higher validation MAE.
+
+### Key Findings
+
+**Speed:** ~10⁻³ seconds per query versus ~10² to 10⁵ seconds for Brutus. The speedup reaches 10⁸× for near-singular initialisations where Brutus requires extreme precision and very small time steps.
+
+**Accuracy:** Validation MAE ≤ 0.1 on unseen initialisations. Particle trajectories are visually indistinguishable from Brutus solutions across both smooth and highly chaotic close-encounter scenarios.
+
+**Chaos reproduction:** The ANN accurately reproduces trajectory divergence across a ring of perturbed initialisations, and Lyapunov exponent estimates from ANN-simulated trajectories match Brutus. This is an emergent property — the network was trained on positions, not on divergence rates.
+
+**Energy conservation:** Raw output has ~1% relative energy error, spiking during close encounters. A post-hoc projection layer (Nelder-Mead optimisation) reduces this to ~10⁻⁵ by nudging predicted coordinates onto the correct energy surface.
+
+### Relevance to This Project
+
+This project uses the restricted circular three-body problem (a test particle orbiting two fixed primaries in a rotating frame) and frames trajectory prediction as a sequence-to-sequence task: given 50 timesteps of history, predict the next 10. The Breen et al. approach is architecturally different — it approximates the solution function directly rather than extrapolating a sequence — and operates on a different physical system (free equal-mass 3BP vs restricted circular 3BP).
+
+The Breen baseline is nevertheless directly relevant as a comparison point for three reasons. First, it establishes that a simple 10-layer MLP can learn physically meaningful solutions to a chaotic gravitational system, motivating the use of deeper and more expressive architectures. Second, their finding that speedup only materialises on GPU — not CPU — is a result this project independently reproduces for LSTM and GRU, supporting the conclusion that EC2 GPU deployment is a scientific requirement rather than an engineering convenience. Third, extending the Breen setup to unequal masses, non-zero initial velocities, or longer time horizons using a Transformer architecture constitutes a natural direction for future work and a publishable contribution beyond replication.
+
+---
+
+## Methodology — Dataset Generation and Class Imbalance
+
+### The Problem with Pure Random Sampling
+
+The initial dataset was generated by drawing initial conditions uniformly at random: position `[xi_0, eta_0]` from the box `[-1.5, 1.5]²` and velocity `[vxi_0, veta_0]` from `[-0.8, 0.8]²`, with `mu` drawn uniformly from `[0.1, 0.4]`. While uniform random sampling is the simplest approach, the resulting class distribution reflects the physical structure of the RC3BP phase space — not a useful distribution for a classification task:
+
+| Class | Natural frequency | Reason |
+|---|---|---|
+| Escape | ~73% | Most random initial conditions give the particle enough energy to fly out |
+| Stable | ~20% | Only specific, narrow regions of IC space produce bounded orbits |
+| Collision | ~6% | Requires starting close to a primary, unlikely by chance |
+| Chaotic | ~0.1% | Bounded orbits with high energy variation are rare near-miss events |
+
+This is not a modelling failure — it is the actual geometry of the phase space. The escape region occupies most of the IC box. Stable orbits cluster near specific dynamical structures (Lagrange points, resonant orbits). Chaotic bounded orbits exist at the narrow boundary between stability and escape.
+
+The consequence for RQ2 is severe: a classifier that always predicts Escape achieves ~73% accuracy without learning anything. The Chaotic class with ~0.1% representation is completely unlearnable — with 4,771 trajectories the test set contains roughly one chaotic example, so no model can meaningfully evaluate on it. Headline accuracy is a misleading metric precisely because the dominant class artificially inflates it.
+
+### Why More Random Samples Do Not Fix This
+
+Generating 50,000 trajectories with pure random sampling produces ~36,500 Escape, ~10,000 Stable, ~3,000 Collision, and ~50 Chaotic. The ratio is unchanged — it is a property of the physics, not the sample count. No amount of random sampling can densely cover the narrow regions of IC space that produce rare trajectory types.
+
+### Targeted Sampling Strategy
+
+To produce a usable class distribution, the dataset generation was changed to use **quota-based targeted sampling**: initial conditions are drawn from distributions designed to land in specific dynamical regions, and generation continues until each class hits its target count.
+
+**Stable orbits — sample near L4 and L5:**
+L4 and L5 are the triangular Lagrange points at `(0.5 - mu, ±sqrt(3)/2)`. For `mu` in `[0.1, 0.4]`, these sit at roughly `(0.1–0.4, ±0.866)`. Particles starting near these points with small velocities are trapped in the potential well and produce stable, bounded orbits. Positions are drawn with `±0.3` perturbations around L4/L5 and velocities are restricted to `[-0.15, 0.15]` to avoid giving the particle enough energy to immediately escape the well.
+
+**Chaotic orbits — sample near L1:**
+L1 is the collinear Lagrange point between the two primaries, located approximately at `x = (1 - mu) - (mu/3)^(1/3)`. It is an unstable equilibrium: the potential saddle point between the two attraction basins. Trajectories starting near L1 sit on the boundary between confinement and escape, producing the bounded high-energy-variation orbits that the classifier labels as Chaotic. Positions are drawn within `±0.2` of L1 along the x-axis and `±0.3` in the y-direction, with moderate velocities `[-0.3, 0.3]`.
+
+**Collision orbits — sample close to a primary:**
+Collision requires the particle to actually reach a primary (distance < 0.01). With random sampling this only happens when the particle starts moderately close and has the right velocity. The targeted sampler draws positions at radius `r ∈ [0.02, 0.12]` from a randomly chosen primary, giving the particle a short path to collision. The minimum-distance threshold that skips initial conditions too close to primaries is relaxed to 0.05 (from 0.1) for this class only.
+
+**Escape orbits — pure random:**
+Escape is the natural outcome of most random initial conditions and requires no targeting. The sampler uses the original uniform distribution and accepts escape trajectories until the quota is filled.
+
+### Resulting Distribution
+
+The balanced generator targets `{Stable: 1500, Chaotic: 750, Escape: 1500, Collision: 750}` for a total of 4,500 trajectories split roughly 33%/17%/33%/17%. This is deliberately not perfectly equal — Escape and Stable are the most physically representative classes, and giving Chaotic and Collision 17% each rather than 25% avoids over-representing pathological edge cases at the expense of the dominant dynamics.
+
+The quota system means that generation continues until all targets are met or a hard cap of 100,000 integration attempts is reached. Because targeted samplers are not guaranteed to produce the intended class (a near-L1 orbit might escape rather than stay bounded, for example), the attempt count is substantially higher than the trajectory count — especially for Chaotic, where the hit rate from the L1 sampler is estimated at 30–50%.
+
+### Class Weights at Training Time
+
+Targeted sampling reduces but does not eliminate imbalance — some trajectories sampled for one class produce a different outcome, and the exact final distribution depends on the physics. As a second layer of correction, all three classifiers use **class-weighted loss**:
+
+- **Logistic Regression and Random Forest**: constructed with `class_weight='balanced'`, which causes sklearn to internally weight each sample by `n_total / (n_classes * n_class_i)`. Misclassifying a rare class incurs a proportionally larger penalty.
+- **MLP**: class weights are computed from the actual training distribution using `compute_class_weight('balanced')` and passed to `model.fit()` via the `class_weight` argument. The effect is identical — the loss contribution of each batch sample is scaled by the inverse frequency of its class.
+
+Together, targeted sampling and class-weighted loss address the imbalance at both the data level and the optimisation level. The more honest evaluation metric for RQ2 remains macro-averaged F1, which weights all classes equally regardless of support, and which should improve substantially compared to the original pure-random dataset.
+
+---
 
 ## Methodology — Data Leakage Fix
 
@@ -116,3 +296,83 @@ The unsupervised clustering found 4 regions of low-velocity points across the da
 Only Cluster 3 is meaningfully close to a known Lagrange point (L4 at (0.2, 0.866), distance 0.187). The other three clusters are likely near-collision or momentary low-velocity events unrelated to true equilibria. L5 was not recovered at all.
 
 This is a weak result for RQ3. The low-velocity heuristic is an imprecise proxy for equilibrium — a body can have near-zero velocity at any turning point in a trajectory, not just near Lagrange points. A more principled approach would filter by the Jacobi integral value or use the equations of motion directly to identify equilibrium candidates.
+
+
+
+### Data Requirements: Breen Baseline vs Sequence Models
+
+The Breen baseline and the sequence models (LSTM, GRU, Transformer) differ not just in architecture but in what they fundamentally ask of training data. The comparison reveals a trade-off between phase-space coverage and temporal depth.
+
+#### What Each Model Is Actually Learning
+(global solution function vs local dynamics extrapolation, with the concrete function signatures)
+
+The Breen MLP learns the *global solution function* — a direct mapping from initial conditions and time to particle positions:
+
+```
+f(t, x2_0, y2_0) → (x1(t), y1(t), x2(t), y2(t))
+```
+
+This function spans all of phase-space. For every possible initial condition and every possible query time, the network must produce the correct answer. Nothing about the query encodes how the system got there — the model has to reconstruct the full solution from a 3-scalar input alone. This demands broad, dense coverage of the IC space and the time axis simultaneously.
+
+The sequence models learn *local dynamics* — a conditional extrapolation:
+
+```
+[xi, eta, vxi, veta] for t=1..50 → [xi, eta, vxi, veta] for t=51..60
+```
+
+The 50-timestep input window already encodes the trajectory's recent history: current position, velocity, any recent close encounters or accelerations. The model only needs to learn the rule "given what just happened, what comes next" — a locally defined and much more tractable function. It does not need to know the original initial conditions at all.
+
+#### Raw Data Comparison
+
+| | Breen et al. | This project |
+|---|---|---|
+| Simulations | 9,900 train + 100 val | 5,000 total |
+| Time points per simulation | ~1,000 (T ≤ 3.9) | 500 |
+| Training samples | ~9.9 million | ~440,000 sequences |
+| Sample input shape | `(3,)` | `(50, 4)` = 200 values |
+| Sample information content | One point in phase-space | 50 steps of full state |
+
+The numbers look lopsided — 9.9M versus 440K — but the information per sample tells the opposite story. A Breen training sample is a single point `(t, x2_0, y2_0)` with essentially no context. A sequence model sample is a 50 × 4 window that implicitly encodes a substantial portion of the trajectory's dynamic history. The sequence approach extracts far more usable signal per training example, which is why it can generalise from a smaller raw sample count.
+
+#### Why Breen Needs Phase-Space Coverage
+
+The Breen model must have seen — or seen something very nearby — every query it will ever encounter at inference time. With only two free parameters (x2_0, y2_0) in the left unit semicircle, the IC space is compact and two-dimensional, which is why 9,900 simulations is manageable. If the IC space were higher-dimensional, this density requirement would become exponentially harder to satisfy — a direct manifestation of the curse of dimensionality.
+
+This also explains why the T ≤ 3.9 model outperforms T ≤ 10: at longer time horizons, the chaotic divergence means that two nearby initial conditions produce increasingly dissimilar trajectories. The network must effectively learn a different curve for each IC, and the complexity of that surface grows with time, requiring even denser coverage to interpolate reliably.
+
+#### Why Sequence Models Sidestep This Problem
+(conditioning on history re-initialises the prediction task at every stride, making IC coverage irrelevant)
+
+By conditioning on recent history rather than initial conditions, sequence models implicitly handle the IC coverage problem. Two trajectories that started from very different ICs but happen to have similar 50-step windows will look alike to the LSTM — they share the same local dynamics regardless of their origins. This means the LSTM is learning a smoother, lower-complexity function than Breen's global solution mapping. A 50-step window essentially re-initialises the prediction task at every stride, so the model generalises across IC space without ever needing to explicitly cover it.
+
+#### Practical Consequence for This Project
+
+This project uses the restricted circular 3BP, where the full initial state is a 4-dimensional vector `[xi, eta, vxi, veta]` plus the mass parameter μ — a 5-dimensional IC space versus Breen's 2-dimensional one. Applying the Breen architecture directly would require a dataset dense enough to cover this higher-dimensional space, demanding substantially more simulations than the 9,900 Breen used. The existing 5,000-trajectory dataset would likely be insufficient for a Breen-style global solution function to generalise well across the full IC space.
+
+The sequence approach is therefore not just a modelling choice but the better-matched strategy for the available data. Temporal context compensates for IC sparsity: even with 5,000 trajectories, the sliding window creates 440,000 training sequences that collectively sample a wide range of dynamic regimes. The model learns from what the trajectory is doing now, not from where it started — making the data more efficiently used and the generalisation problem more tractable.
+
+---
+
+### Why the Breen Baseline's Informational Advantage Makes It the Right Baseline
+
+The Breen MLP holds a structural advantage over every sequence model in this project: it is given the **true initial conditions** at inference time. When queried for the state at time t, it receives `[t, xi_0, eta_0, vxi_0, veta_0, μ]` — perfect knowledge of where and how fast every body started. The sequence models (LSTM, GRU, Transformer) receive no such oracle. They are handed a 50-step window of recent history and must implicitly reconstruct whatever information about the system's origin is still detectable in that window. In a chaotic system, that information decays: the further along a trajectory the window sits, the less it reveals about the original initial conditions.
+
+This asymmetry is not a flaw in the comparison — it is precisely what makes the Breen MLP a meaningful upper-bound baseline.
+
+#### What the Comparison Tells You Either Way
+
+If the sequence models **match or approach** the Breen MLP's test MAE, the implication is strong: a 50-step history window contains enough information to recover predictions as accurate as those made with full knowledge of the initial conditions. This would validate the sequence-based approach and suggest that the system's dynamics are sufficiently self-referential — recent history encodes the IC information that matters for short-horizon prediction.
+
+If the sequence models **fall short** of the Breen MLP, the gap is not a failure but a measurement. It quantifies exactly how much predictive accuracy is lost by not having access to the initial conditions — the irreducible cost of the harder inference problem the sequence models are actually solving. A Breen MAE of X and an LSTM MAE of X + δ means δ is the price of oracle-free prediction in this system.
+
+Either outcome is a publishable result. The Breen MLP provides the reference ceiling; the sequence models attempt to reach it from a harder starting position.
+
+#### Why This Makes Breen the Proper Baseline
+
+A baseline model should represent the best achievable performance under simplified or privileged conditions, so that more realistic models can be evaluated relative to it. The Breen MLP satisfies this definition precisely:
+
+- It has access to information (true initial conditions) that production-style sequence models cannot have, because in real forecasting scenarios the initial conditions of an observed trajectory are not known — only recent observations are available.
+- Its architecture is simple and well-understood, so differences in performance cannot be attributed to architectural complexity.
+- It produces point predictions at arbitrary query times, rather than extrapolating a fixed window, which is a genuinely different and in some respects easier inference modality.
+
+Using the Breen MLP as a baseline therefore answers the question that matters most for this dissertation: *how close can a realistic, history-only sequence model get to a model with perfect initial condition knowledge?* That framing converts what might look like an unfair comparison into the most informative comparison possible.

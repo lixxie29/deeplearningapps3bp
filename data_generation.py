@@ -141,7 +141,127 @@ class ThreeBodyDataGenerator:
         except Exception as e:
             return None
     
-    def generate_dataset(self, n_trajectories=5000, mu_range=(0.1, 0.4), 
+    def _sample_stable(self, mu):
+        """Sample near L4/L5 — the known stable equilibrium points."""
+        sign = np.random.choice([-1, 1])
+        xi0  = (0.5 - mu) + np.random.uniform(-0.3, 0.3)
+        eta0 = sign * np.sqrt(3) / 2 + np.random.uniform(-0.3, 0.3)
+        vxi0  = np.random.uniform(-0.15, 0.15)
+        veta0 = np.random.uniform(-0.15, 0.15)
+        return xi0, eta0, vxi0, veta0
+
+    def _sample_chaotic(self, mu):
+        """Sample near the L1 unstable equilibrium — the stability boundary."""
+        r_hill = (mu / 3) ** (1 / 3)
+        L1_x = (1 - mu) - r_hill
+        xi0  = L1_x + np.random.uniform(-0.2, 0.2)
+        eta0 = np.random.uniform(-0.3, 0.3)
+        vxi0  = np.random.uniform(-0.3, 0.3)
+        veta0 = np.random.uniform(-0.3, 0.3)
+        return xi0, eta0, vxi0, veta0
+
+    def _sample_collision(self, mu):
+        """Sample close to one of the primaries to encourage collision trajectories."""
+        primary_x = np.random.choice([-mu, 1 - mu])
+        angle = np.random.uniform(0, 2 * np.pi)
+        r = np.random.uniform(0.02, 0.12)
+        xi0  = primary_x + r * np.cos(angle)
+        eta0 = r * np.sin(angle)
+        vxi0  = np.random.uniform(-0.5, 0.5)
+        veta0 = np.random.uniform(-0.5, 0.5)
+        return xi0, eta0, vxi0, veta0
+
+    def generate_balanced_dataset(self, target_counts=None, mu_range=(0.1, 0.4),
+                                   t_max=50, n_points=500, filename='three_body_dataset.pkl',
+                                   max_attempts=100000):
+        """
+        Generate a dataset with explicit per-class quotas using targeted sampling.
+
+        Pure random sampling gives ~73% Escape, ~20% Stable, ~6% Collision, ~0.1% Chaotic,
+        making the Chaotic class practically unlearnable. This method biases sampling toward
+        whichever class is most behind its quota:
+          - Stable:    sample near L4/L5 equilibrium points
+          - Chaotic:   sample near the L1 unstable equilibrium (stability boundary)
+          - Collision: sample close to a primary body
+          - Escape:    pure random (happens naturally)
+
+        Parameters
+        ----------
+        target_counts : dict, optional
+            {label: count} targets. Default gives a roughly balanced 4-class dataset.
+        max_attempts : int
+            Hard cap on integration attempts to prevent infinite loops.
+        """
+        if target_counts is None:
+            target_counts = {0: 1200, 1: 500, 2: 1200, 3: 600}
+
+        counts  = {k: 0 for k in target_counts}
+        dataset = []
+        attempts = 0
+        total_target = sum(target_counts.values())
+
+        label_names = {0: 'Stable', 1: 'Chaotic', 2: 'Escape', 3: 'Collision'}
+        print(f"Generating balanced dataset — targets: "
+              f"{ {label_names[k]: v for k, v in target_counts.items()} }")
+
+        pbar = tqdm(total=total_target, desc='Trajectories collected')
+
+        while attempts < max_attempts:
+            # Stop when every class has hit its quota
+            if all(counts[k] >= target_counts[k] for k in target_counts):
+                break
+
+            attempts += 1
+            mu = np.random.uniform(mu_range[0], mu_range[1])
+
+            # Pick the most-needed class and use its targeted sampler
+            needed = [k for k in target_counts if counts[k] < target_counts[k]]
+            target_class = np.random.choice(needed)
+
+            if target_class == 0:
+                xi0, eta0, vxi0, veta0 = self._sample_stable(mu)
+            elif target_class == 1:
+                xi0, eta0, vxi0, veta0 = self._sample_chaotic(mu)
+            elif target_class == 3:
+                xi0, eta0, vxi0, veta0 = self._sample_collision(mu)
+            else:
+                xi0   = np.random.uniform(-1.5, 1.5)
+                eta0  = np.random.uniform(-1.5, 1.5)
+                vxi0  = np.random.uniform(-0.8, 0.8)
+                veta0 = np.random.uniform(-0.8, 0.8)
+
+            dist1 = np.sqrt((xi0 + mu)**2 + eta0**2)
+            dist2 = np.sqrt((xi0 - (1 - mu))**2 + eta0**2)
+            if target_class != 3 and (dist1 < 0.05 or dist2 < 0.05):
+                continue
+
+            data = self.generate_single_trajectory(
+                [xi0, eta0, vxi0, veta0], mu, t_max, n_points
+            )
+            if data is None:
+                continue
+
+            label = data['label']
+            if counts.get(label, 0) < target_counts.get(label, 0):
+                dataset.append(data)
+                counts[label] += 1
+                pbar.update(1)
+
+        pbar.close()
+
+        print(f"\nCollected {len(dataset)} trajectories in {attempts} attempts")
+        print("Final class distribution:")
+        for k, name in label_names.items():
+            n = counts.get(k, 0)
+            pct = 100 * n / len(dataset) if dataset else 0
+            print(f"  {name}: {n} ({pct:.1f}%)")
+
+        with open(filename, 'wb') as f:
+            pickle.dump(dataset, f)
+        print(f"Dataset saved to {filename}")
+        return dataset
+
+    def generate_dataset(self, n_trajectories=5000, mu_range=(0.1, 0.4),
                         t_max=50, n_points=500, filename='three_body_dataset.pkl'):
         """
         Generate complete dataset

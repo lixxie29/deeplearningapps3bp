@@ -18,8 +18,8 @@ def main():
     if not os.path.exists('three_body_dataset.pkl'):
         from data_generation import ThreeBodyDataGenerator
         generator = ThreeBodyDataGenerator()
-        dataset = generator.generate_dataset(
-            n_trajectories=5000,
+        dataset = generator.generate_balanced_dataset(
+            target_counts={0: 1500, 1: 750, 2: 1500, 3: 750},
             mu_range=(0.1, 0.4),
             t_max=50,
             n_points=500,
@@ -37,16 +37,24 @@ def main():
     class_results = train_classification_models()
     print("✓ Classification models trained successfully")
     
-    # Step 3: Prediction (RQ1)
-    print("\n\nSTEP 3: Training Prediction Models (RQ1)")
+    # Step 3: Breen Baseline (RQ1 — train first as the reference ceiling)
+    print("\n\nSTEP 3: Training Breen Baseline (RQ1)")
     print("-"*70)
-    
+
+    from train_breen_baseline import train_breen_baseline
+    breen_results = train_breen_baseline()
+    print("✓ Breen baseline trained successfully")
+
+    # Step 4: Prediction models (RQ1 — compared against Breen)
+    print("\n\nSTEP 4: Training Prediction Models (RQ1)")
+    print("-"*70)
+
     from train_prediction import train_prediction_models
     pred_results = train_prediction_models()
     print("✓ Prediction models trained successfully")
-    
-    # Step 4: Equilibrium Discovery (RQ3)
-    print("\n\nSTEP 4: Discovering Lagrange Points (RQ3)")
+
+    # Step 5: Equilibrium Discovery (RQ3)
+    print("\n\nSTEP 5: Discovering Lagrange Points (RQ3)")
     print("-"*70)
     
     from discover_equilibria import discover_lagrange_points
@@ -65,18 +73,25 @@ def main():
     print("  - prediction_results.pkl")
     print("  - prediction_training_history.png")
     print("  - prediction_examples.png")
+    print("  - breen_results.pkl")
+    print("  - breen_training_history.png")
+    print("  - breen_prediction_examples.png")
     print("  - equilibrium_discovery_results.pkl")
     print("  - lagrange_point_discovery.png")
-    
+
     print("\nResults Summary:")
     print("\nRQ2 - Classification:")
     for name, result in class_results.items():
         print(f"  {name}: {result['test_acc']:.3f} accuracy")
-    
-    print("\nRQ1 - Prediction:")
+
+    print("\nRQ1 - Prediction (sequence models):")
     for name, result in pred_results.items():
         print(f"  {name}: {result['test_mae']:.6f} MAE, {result['inference_time']*1000:.2f} ms/sample")
-    
+
+    print("\nRQ1 - Breen Baseline:")
+    for name, result in breen_results.items():
+        print(f"  {name}: {result['test_mae']:.6f} MAE, {result['inference_time']*1000:.2f} ms/sample")
+
     print("\nRQ3 - Equilibrium Discovery:")
     print(f"  Discovered {len(eq_results['discovered_points'])} equilibrium regions")
     

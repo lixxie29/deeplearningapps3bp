@@ -86,5 +86,45 @@ def test_prediction_models():
     
     return results
 
+def test_breen_baseline():
+    """Test saved Breen baseline and print comparison against sequence models."""
+
+    print("="*70)
+    print(" TESTING BREEN BASELINE (RQ1)")
+    print("="*70)
+
+    with open('breen_results.pkl', 'rb') as f:
+        breen = pickle.load(f)
+
+    print(f"\n{'Model':<12} {'MAE':<12} {'Time (ms)':<12}")
+    print("-" * 38)
+    for name, result in breen.items():
+        print(f"{name:<12} {result['test_mae']:<12.6f} {result['inference_time']*1000:<12.3f}")
+
+    # Cross-compare with sequence models if available
+    try:
+        with open('prediction_results.pkl', 'rb') as f:
+            seq = pickle.load(f)
+
+        print("\n" + "="*70)
+        print(" FULL RQ1 COMPARISON (Breen baseline vs sequence models)")
+        print("="*70)
+        print(f"\n{'Model':<14} {'MAE':<12} {'Time (ms)':<14} {'Gap vs Breen'}")
+        print("-" * 58)
+
+        breen_mae = list(breen.values())[0]['test_mae']
+        for name, result in breen.items():
+            print(f"{name:<14} {result['test_mae']:<12.6f} {result['inference_time']*1000:<14.3f} — (baseline)")
+        for name, result in seq.items():
+            gap = result['test_mae'] - breen_mae
+            direction = f"+{gap:.6f} worse" if gap > 0 else f"{gap:.6f} better"
+            print(f"{name:<14} {result['test_mae']:<12.6f} {result['inference_time']*1000:<14.3f} {direction}")
+    except FileNotFoundError:
+        print("\n(prediction_results.pkl not found — run train_prediction.py for full comparison)")
+
+    return breen
+
+
 if __name__ == "__main__":
+    test_breen_baseline()
     test_prediction_models()
