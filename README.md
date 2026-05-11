@@ -112,12 +112,14 @@ three_body_dl/
 - `prediction_examples.png` - Example trajectory predictions
 - `lagrange_point_discovery.png` - Discovered vs known Lagrange points
 
-## Expected Results
+## Results
 
 ### RQ2 - Classification
-- Random Forest: ~80-85% accuracy
-- MLP: ~82-87% accuracy
-- Best at distinguishing stable vs chaotic/escape trajectories
+- Logistic Regression: 73.5% accuracy (collapses to majority class — Escape)
+- Random Forest: 78.2% accuracy (best model, macro F1 = 0.44)
+- MLP: 78.2% accuracy
+- All models struggle with Chaotic class (~0.1% of data, unlearnable)
+- See DISCUSSION.md for full analysis
 
 ### RQ1 - Prediction
 - LSTM/GRU: Good predictions for 10-20 timesteps

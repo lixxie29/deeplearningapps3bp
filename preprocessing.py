@@ -51,7 +51,7 @@ class DataPreprocessor:
             X, y, test_size=0.3, random_state=42, stratify=y
         )
         X_val, X_test, y_val, y_test = train_test_split(
-            X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp
+            X_temp, y_temp, test_size=0.5, random_state=42
         )
 
         # Normalize
@@ -107,11 +107,11 @@ class DataPreprocessor:
         )
 
         # Step 2: Create sliding-window sequences within each split
-        def create_sequences(trajectories, input_len, output_len):
+        def create_sequences(trajectories, input_len, output_len, stride=5):
             X, y = [], []
             for data in trajectories:
                 trajectory = data['trajectory']
-                for i in range(len(trajectory) - input_len - output_len):
+                for i in range(0, len(trajectory) - input_len - output_len, stride):
                     X.append(trajectory[i:i+input_len])
                     y.append(trajectory[i+input_len:i+input_len+output_len])
             return np.array(X), np.array(y)
