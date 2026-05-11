@@ -150,6 +150,75 @@ class DataPreprocessor:
             'scaler':  scaler
         }
     
+    def prepare_breen_data(self):
+        """
+        Prepare data for the Breen et al. (2019) baseline (adapted for restricted 3BP).
+
+        For every timestep i in every trajectory, one training sample is:
+          Input:  [t_i, xi_0, eta_0, vxi_0, veta_0, mu]   shape (6,)
+          Output: [xi(t_i), eta(t_i), vxi(t_i), veta(t_i)] shape (4,)
+
+        The model learns the global solution function f(t, IC) → state directly,
+        requiring no sequence context — each sample is independent.
+
+        Split is done at trajectory level first (same leakage-prevention strategy
+        as prepare_prediction_data) so no trajectory contributes to multiple splits.
+
+        Returns dict with X_train, X_val, X_test, y_train, y_val, y_test,
+        scaler_X (input scaler), scaler_y (output scaler).
+        """
+        train_trajs, temp_trajs = train_test_split(
+            self.dataset, test_size=0.3, random_state=42
+        )
+        val_trajs, test_trajs = train_test_split(
+            temp_trajs, test_size=0.5, random_state=42
+        )
+
+        def extract_samples(trajectories):
+            X, y = [], []
+            for data in trajectories:
+                traj = data['trajectory']   # (n_points, 4)
+                t    = data['time']         # (n_points,)
+                mu   = data['mu']
+                ic   = data['initial_state']  # [xi_0, eta_0, vxi_0, veta_0]
+                for i in range(len(t)):
+                    X.append([t[i], ic[0], ic[1], ic[2], ic[3], mu])
+                    y.append(traj[i])
+            return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
+
+        X_train, y_train = extract_samples(train_trajs)
+        X_val,   y_val   = extract_samples(val_trajs)
+        X_test,  y_test  = extract_samples(test_trajs)
+
+        scaler_X = StandardScaler()
+        X_train = scaler_X.fit_transform(X_train)
+        X_val   = scaler_X.transform(X_val)
+        X_test  = scaler_X.transform(X_test)
+
+        scaler_y = StandardScaler()
+        y_train = scaler_y.fit_transform(y_train)
+        y_val   = scaler_y.transform(y_val)
+        y_test  = scaler_y.transform(y_test)
+
+        print(f"\n{'='*50}")
+        print(f"Breen Baseline Dataset Statistics")
+        print(f"{'='*50}")
+        print(f"Trajectories — Train: {len(train_trajs)}, Val: {len(val_trajs)}, Test: {len(test_trajs)}")
+        print(f"Samples      — Train: {len(X_train):,}, Val: {len(X_val):,}, Test: {len(X_test):,}")
+        print(f"Input shape: {X_train.shape}, Output shape: {y_train.shape}")
+        print(f"{'='*50}\n")
+
+        return {
+            'X_train':  X_train,
+            'X_val':    X_val,
+            'X_test':   X_test,
+            'y_train':  y_train,
+            'y_val':    y_val,
+            'y_test':   y_test,
+            'scaler_X': scaler_X,
+            'scaler_y': scaler_y,
+        }
+
     def prepare_equilibrium_data(self):
         """
         Prepare data for RQ3: Discovering Lagrange points
