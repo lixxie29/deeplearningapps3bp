@@ -8,6 +8,7 @@ import pickle
 from preprocessing import DataPreprocessor
 from models import build_mlp_classifier, get_traditional_classifiers
 from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.utils.class_weight import compute_class_weight
 import matplotlib.pyplot as plt
 import seaborn as sns
 import tensorflow as tf
@@ -57,15 +58,21 @@ def train_classification_models():
     print("\n" + "="*50)
     print("Training MLP")
     print("="*50)
-    
+
+    classes = np.unique(data['y_train'])
+    weights = compute_class_weight('balanced', classes=classes, y=data['y_train'])
+    class_weight_dict = dict(zip(classes.tolist(), weights.tolist()))
+    print(f"Class weights: { {int(k): round(v, 3) for k, v in class_weight_dict.items()} }")
+
     mlp = build_mlp_classifier()
-    
+
     history_mlp = mlp.fit(
         data['X_train'], data['y_train'],
         validation_data=(data['X_val'], data['y_val']),
         epochs=50,
         batch_size=32,
         verbose=1,
+        class_weight=class_weight_dict,
         callbacks=[
             tf.keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)
         ]
