@@ -99,7 +99,44 @@ def train_prediction_models():
         'inference_time': gru_time / 100
     }
     
-    # 3. Compare with numerical integration time
+    # 3. Transformer
+    print("\n" + "="*50)
+    print("Training Transformer Predictor")
+    print("="*50)
+
+    transformer = build_transformer_predictor(input_length=50, output_length=10)
+
+    history_transformer = transformer.fit(
+        data['X_train'], data['y_train'],
+        validation_data=(data['X_val'], data['y_val']),
+        epochs=100,
+        batch_size=32,
+        verbose=1,
+        callbacks=[
+            tf.keras.callbacks.EarlyStopping(patience=15, restore_best_weights=True),
+            tf.keras.callbacks.ReduceLROnPlateau(patience=5, factor=0.5)
+        ]
+    )
+
+    test_loss, test_mae = transformer.evaluate(data['X_test'], data['y_test'], verbose=0)
+
+    print(f"\nTransformer Test Loss (MSE): {test_loss:.6f}")
+    print(f"Transformer Test MAE: {test_mae:.6f}")
+
+    start = time.time()
+    predictions_transformer = transformer.predict(data['X_test'][:100], verbose=0)
+    transformer_time = time.time() - start
+
+    results['Transformer'] = {
+        'model': transformer,
+        'history': history_transformer.history,
+        'test_loss': test_loss,
+        'test_mae': test_mae,
+        'predictions': predictions_transformer,
+        'inference_time': transformer_time / 100
+    }
+
+    # 4. Compare with numerical integration time
     print("\n" + "="*50)
     print("Comparing with Numerical Integration")
     print("="*50)
@@ -118,12 +155,14 @@ def train_prediction_models():
     numerical_time = (time.time() - start) / 10
     
     print(f"\nInference Time Comparison (per sample):")
-    print(f"LSTM: {results['LSTM']['inference_time']*1000:.3f} ms")
-    print(f"GRU: {results['GRU']['inference_time']*1000:.3f} ms")
+    print(f"LSTM:        {results['LSTM']['inference_time']*1000:.3f} ms")
+    print(f"GRU:         {results['GRU']['inference_time']*1000:.3f} ms")
+    print(f"Transformer: {results['Transformer']['inference_time']*1000:.3f} ms")
     print(f"Numerical Integration: {numerical_time*1000:.3f} ms")
     print(f"\nSpeedup:")
-    print(f"LSTM: {numerical_time/results['LSTM']['inference_time']:.1f}x faster")
-    print(f"GRU: {numerical_time/results['GRU']['inference_time']:.1f}x faster")
+    print(f"LSTM:        {numerical_time/results['LSTM']['inference_time']:.1f}x faster")
+    print(f"GRU:         {numerical_time/results['GRU']['inference_time']:.1f}x faster")
+    print(f"Transformer: {numerical_time/results['Transformer']['inference_time']:.1f}x faster")
     
     # 4. Plot training history
     fig, axes = plt.subplots(1, 2, figsize=(12, 4))
