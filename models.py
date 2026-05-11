@@ -148,9 +148,31 @@ def build_transformer_predictor(input_length=50, input_dim=4, output_length=10,
     return model
 
 
+def build_breen_mlp(input_dim=6, output_dim=4, hidden_layers=10, hidden_units=128):
+    """
+    Breen et al. (2019) baseline adapted for the restricted circular 3BP.
+
+    Maps (t, xi_0, eta_0, vxi_0, veta_0, mu) → (xi(t), eta(t), vxi(t), veta(t))
+    directly from initial conditions and a query time, with no sequence context.
+
+    Original paper used input_dim=3 (equal-mass, zero-velocity, 2D free 3BP).
+    Here input_dim=6 to cover the full 4D IC vector plus mass parameter mu.
+
+    Architecture: 10 x Dense(128, ReLU) + Dense(4, linear)
+    Loss: MAE  |  Optimizer: Adam  (matches paper exactly)
+    """
+    model = tf.keras.Sequential(
+        [layers.Input(shape=(input_dim,))]
+        + [layers.Dense(hidden_units, activation='relu') for _ in range(hidden_layers)]
+        + [layers.Dense(output_dim)]
+    )
+    model.compile(optimizer='adam', loss='mae', metrics=['mae'])
+    return model
+
+
 def get_traditional_classifiers():
     """Get traditional ML classifiers"""
     return {
-        'Logistic Regression': LogisticRegression(max_iter=1000, random_state=42),
-        'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42)
+        'Logistic Regression': LogisticRegression(max_iter=1000, random_state=42, class_weight='balanced'),
+        'Random Forest': RandomForestClassifier(n_estimators=100, random_state=42, class_weight='balanced')
     }
