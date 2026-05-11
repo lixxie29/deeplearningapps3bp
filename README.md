@@ -114,17 +114,17 @@ three_body_dl/
 
 ## Results
 
+### RQ1 - Prediction
+- LSTM/GRU: Good predictions for 10-20 timesteps
+- 10-100x faster than numerical integration
+- Accuracy degrades for long-term chaotic behavior
+
 ### RQ2 - Classification
 - Logistic Regression: 73.5% accuracy (collapses to majority class — Escape)
 - Random Forest: 78.2% accuracy (best model, macro F1 = 0.44)
 - MLP: 78.2% accuracy
 - All models struggle with Chaotic class (~0.1% of data, unlearnable)
 - See DISCUSSION.md for full analysis
-
-### RQ1 - Prediction
-- LSTM/GRU: Good predictions for 10-20 timesteps
-- 10-100x faster than numerical integration
-- Accuracy degrades for long-term chaotic behavior
 
 ### RQ3 - Equilibrium Discovery
 - Should discover 2 clusters near L4, L5 Lagrange points
