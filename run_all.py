@@ -5,6 +5,7 @@ Run this to execute all experiments
 
 import sys
 import os
+from s3_utils import download_dataset, upload_all_results
 
 def main():
     print("="*70)
@@ -16,10 +17,13 @@ def main():
     print("-"*70)
     
     if not os.path.exists('three_body_dataset.pkl'):
+        download_dataset()  # try S3 first
+
+    if not os.path.exists('three_body_dataset.pkl'):
         from data_generation import ThreeBodyDataGenerator
         generator = ThreeBodyDataGenerator()
         dataset = generator.generate_balanced_dataset(
-            target_counts={0: 1500, 1: 750, 2: 1500, 3: 750},
+            target_counts={0: 30000, 1: 15000, 2: 30000, 3: 15000},
             mu_range=(0.1, 0.4),
             t_max=50,
             n_points=500,
@@ -96,6 +100,9 @@ def main():
     print(f"  Discovered {len(eq_results['discovered_points'])} equilibrium regions")
     
     print("\n" + "="*70)
+
+    # Upload all results to S3
+    upload_all_results()
 
 if __name__ == "__main__":
     main()
