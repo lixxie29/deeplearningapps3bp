@@ -393,3 +393,85 @@ A baseline model should represent the best achievable performance under simplifi
 - It produces point predictions at arbitrary query times, rather than extrapolating a fixed window, which is a genuinely different and in some respects easier inference modality.
 
 Using the Breen MLP as a baseline therefore answers the question that matters most for this dissertation: *how close can a realistic, history-only sequence model get to a model with perfect initial condition knowledge?* That framing converts what might look like an unfair comparison into the most informative comparison possible.
+
+---
+
+## Results — Plot Interpretations
+
+### Breen MLP — Training History
+
+The Breen training history reveals a clear failure mode on the current dataset size. Early stopping triggered after only 18 epochs: the training MAE continued declining (reaching approximately 0.35) while validation MAE plateaued and began rising (settling near 0.44). This divergence between train and validation loss is a textbook sign of overfitting — the model has sufficient capacity to memorise the training examples but cannot generalise to unseen initial conditions.
+
+The root cause is data sparsity in the 5-dimensional IC space. The Breen MLP must learn a global solution function over the full (t, xi_0, eta_0, vxi_0, veta_0, μ) space. With approximately 4,500 trajectories, the coverage of this space is too sparse for the model to interpolate reliably between seen and unseen initial conditions. The 18-epoch training run effectively saturated what could be learned from this data, after which additional epochs only deepened memorisation without improving generalisation.
+
+This result is not a failure of the architecture — it is a data requirement problem. The original Breen et al. paper operated on a 2-dimensional IC space with 9,900 training simulations, a density several orders of magnitude higher than what is available here. Retraining on the 100,000-trajectory EC2 dataset is expected to substantially change this picture.
+
+### Breen MLP — Prediction Examples
+
+The three example predictions confirm the training history finding. In all three cases, the model produces near-constant outputs regardless of the true trajectory dynamics:
+
+**Trajectory 1 (escape):** The true ξ(t) grows from 0 to approximately ±45 over the simulation window, with oscillations that increase in amplitude — a characteristic escape pattern. The predicted ξ remains flat near zero throughout. In phase space, the true trajectory spirals outward to a radius of ~60 while the prediction collapses to a small region near the origin. The model is outputting something close to the dataset mean rather than responding to the specific initial conditions it was given.
+
+**Trajectory 2 (stable):** The true trajectory is nearly constant at ξ ≈ 0.7, a very low-energy stable orbit with minimal movement. Counterintuitively, the model performs worst here: it starts at ξ ≈ 0.3 and drifts upward to ξ ≈ 1.25 by t = 50, producing an incorrect trend where the true dynamics are almost perfectly flat. In phase space, the true trajectory is a near-point while the predicted trajectory wanders. This is the most revealing failure — when the true answer is simple and constant, the model still produces a wrong and dynamic prediction, suggesting it has not learned to associate specific IC patterns with stable dynamics.
+
+**Trajectory 3 (chaotic):** The true ξ oscillates between −0.75 and 1.25 with aperiodic, high-amplitude variation. The predicted ξ stays in a narrow band near 0.75–0.85 with no meaningful variation. The phase-space plot shows the true trajectory filling a densely tangled region while the prediction occupies a tiny cluster near a single point.
+
+Across all three examples, the model's predictions are effectively independent of which trajectory was queried — it outputs a near-constant value that reflects the training distribution mean rather than the specific dynamics of the initial conditions provided. This is consistent with the observed overfitting: the model has learned to minimise MAE across the training set by regressing to a safe average, rather than learning the solution function.
+
+---
+
+### RQ2 — Classification Results (Balanced Dataset)
+
+The confusion matrices show the results under the new balanced dataset (targets: Stable 1500, Chaotic 750, Escape 1500, Collision 750) with class-weighted loss. The comparison with the original imbalanced dataset is informative precisely because the two settings differ in a controlled way — only the data generation strategy changed.
+
+**Logistic Regression (25.3% accuracy):** Under the original imbalanced dataset, Logistic Regression collapsed entirely to predicting Escape and achieved ~70% accuracy by doing so. With the balanced dataset, this strategy no longer works — there is no dominant class to exploit. The model now distributes its predictions more broadly but with poor calibration, misclassifying heavily across all classes. The accuracy of 25.3% — below random chance for a 4-class problem — reflects that a linear decision boundary cannot separate trajectory types in the 5-dimensional IC space regardless of the training distribution. Logistic Regression serves as a clear lower bound, demonstrating that linear separability is absent.
+
+**Random Forest (73.8% accuracy):** The Random Forest recovers meaningful structure across three of the four classes. Escape recall is high (208/222, 94%) — escape trajectories are sufficiently distinct in IC space that the ensemble can identify them reliably. Stable recall is also acceptable (162/227, 71%), reflecting that the L4/L5-targeted sampling has produced a cluster of stable ICs that the forest can partially segment. Collision recall is moderate (75/118, 64%). Chaotic recall is poor (22/66, 33%) — even with targeted sampling, chaotic orbits occupy a narrow region near L1 that is physically close to both escape and stable regions, making them difficult to separate using only initial conditions.
+
+The overall accuracy of 73.8% represents a real drop from what would be reported under the original imbalanced dataset. This is expected: an imbalanced result is partially inflated by heavy Escape weighting. The balanced result is more honest.
+
+**MLP (69.7% accuracy):** The MLP shows a different failure pattern from Random Forest. Its Stable recall is weaker (101/227, 45%) — the MLP does not segment the stable region as cleanly as the ensemble — but its Chaotic recall is substantially higher (50/66, 76%), significantly outperforming Random Forest on the hardest class. Escape recall is near-perfect (215/222, 97%) and Collision matches Random Forest exactly (75/118, 64%).
+
+The MLP–RF trade-off is the most interesting finding in RQ2: both models achieve similar overall accuracy (~70–74%), but each excels in different classes. Random Forest is better at Stable; MLP is better at Chaotic. This suggests the two models are learning complementary aspects of the IC space — the ensemble exploits axis-aligned decision boundaries effective near L4/L5, while the MLP's continuous activation functions capture the smoother boundary near L1 where chaotic orbits live. An ensemble combining both would likely outperform either individually.
+
+The key methodological finding for the paper: the balanced dataset made the Chaotic class learnable. Under the original pure-random dataset, the Chaotic class had near-zero representation and all models achieved 0% Chaotic recall. Under the new dataset, the MLP achieves 76% Chaotic recall. This is a direct, measurable consequence of the targeted sampling strategy implemented in Phase 1.
+
+---
+
+### RQ3 — Lagrange Point Discovery
+
+**Scatter plot (Discovered vs Known):** The DBSCAN clustering on 1,284 low-velocity trajectory points returned four cluster centres. The dominant cluster (Cluster 0, 1,218 of 1,284 points) sits near the origin at (−0.043, 0.010) — close to the Sun's position and far from either Lagrange point (distance 0.890 from L4). This cluster represents a dense accumulation of momentary low-velocity events as trajectories pass through and around the inner region of the rotating frame, not equilibrium passages. It is a spurious result of the heuristic.
+
+The three remaining clusters are small (11–18 points each) and more spatially meaningful. Cluster 3 at (0.185, −0.939) lies at distance 0.074 from L5 — the closest approach to a known Lagrange point in the dataset. Cluster 2 at (0.424, −0.835) is also in the L5 neighbourhood at distance 0.226. Cluster 1 at (−0.108, 1.044) sits in the upper half of the phase space at distance 0.356 from L4, a partial approach but not a recovery.
+
+**Density heatmap:** The density heatmap reveals that most of the low-velocity points concentrate near the two primary bodies — the Sun and the planet — rather than near L4 or L5. This makes physical sense: objects naturally decelerate when passing through regions of strong gravitational influence, momentarily dropping below the velocity threshold regardless of whether they are near an equilibrium. The discovered points near L5 appear in a low-density region of the heatmap, indicating they represent rare, physically meaningful passages rather than the bulk statistical trend. L5 has a couple of discovered points nearby, including one almost right on top of it, which explains why that particular Lagrange point was recovered so accurately.
+
+L5 is partially recovered (distance 0.074) while L4 is not meaningfully recovered. This asymmetry likely reflects the distribution of stable trajectories in the dataset: the targeted sampling near L4/L5 produced orbits that pass closer to L5 in the simulation window used, by chance of the initial condition perturbations and the integration duration. A longer simulation window or a more symmetric sampling strategy might recover both equally.
+
+The low-velocity heuristic conflates two physically distinct phenomena: true equilibrium passages and general turning points anywhere along an orbit. A principled method would require filtering by the Jacobi constant value near the theoretical equilibrium value at L4/L5, or identifying positions where the net force on the particle drops below a threshold. The current approach, while simple to implement, cannot reliably distinguish equilibrium from deceleration — the near-recovery of L5 at distance 0.074 is encouraging but the dominant spurious cluster near the origin illustrates the method's fundamental imprecision.
+
+---
+
+### RQ1 — Sequence Model Training Results
+
+**Training history:** The training history plot shows all three sequence models simultaneously. LSTM and GRU share a common pattern: a rapid descent in the first 10 epochs (roughly one order of magnitude reduction in MSE), followed by slow refinement over the remaining epochs. Both models converge with validation curves tracking training curves closely — a small, stable gap indicating good generalisation attributable to the stride=5 windowing fix.
+
+The Transformer's behaviour is qualitatively different. Both its training and validation loss plateau from epoch 2 onward at approximately MSE 0.09, roughly 20× higher than the LSTM/GRU plateau of ~0.004. Crucially, the Transformer's training loss is nearly as high as its validation loss — this is not overfitting (where train diverges from val) but rather a failure to fit the training data at all. The model is stuck in a region of the loss landscape where it cannot make further progress, likely a local minimum or a saddle point that the attention mechanism cannot escape with the current learning rate and architecture settings. Early stopping triggered at epoch 21 after validation loss showed no improvement.
+
+**Final results:**
+
+| Model | Test MSE | Test MAE | Inference | Epochs |
+|-------|----------|----------|-----------|--------|
+| LSTM | — | 0.019227 | 18.01 ms | 48 |
+| GRU | — | 0.019972 | 36.34 ms | 67 |
+| Transformer | 0.079493 | 0.122307 | 18.94 ms | 21 |
+| Breen MLP | — | 0.457661 | 62.50 ms | 18 |
+| Numerical Integration | — | — | 8.03 ms | — |
+
+LSTM marginally outperforms GRU in test MAE (0.019 vs 0.020). The GRU inference time of 36.34ms being higher than LSTM's 18.01ms is likely a measurement artifact from single-sample timing overhead rather than a true architectural difference — GRU has fewer parameters than LSTM and would not be expected to be slower in practice.
+
+**Transformer underperformance:** The Transformer's test MAE of 0.122 is approximately 6× worse than LSTM/GRU. This is consistent with the known data requirements of attention-based architectures. Self-attention learns which of the 50 input timesteps to attend to for each prediction — but learning meaningful attention patterns requires many diverse examples. With ~420,000 training sequences from 4,500 trajectories, the Transformer does not have enough variety to calibrate its attention weights. LSTM and GRU learn local recurrence patterns from much shorter effective memory windows, making them far more sample-efficient at this scale.
+
+This is the same root cause as the Breen failure: insufficient data for the model's learning strategy. All three underperformers (Breen, Transformer, and to a lesser degree GRU) stopped early and plateaued well above LSTM's performance level. The 100,000-trajectory EC2 dataset is expected to be the differentiating experiment — particularly for the Transformer, which has demonstrated strong performance on chaotic systems in the literature when given sufficient training data.
+
+**CPU inference is slower than numerical integration:** All neural network models are slower than numerical integration on CPU (8.03 ms per sample). LSTM and Transformer run at ~0.4× the speed of the ODE solver; GRU at ~0.2×. This directly contradicts the computational efficiency motivation in the abstract and the Breen et al. speedup claim. The explanation is TensorFlow's CPU overhead: graph execution, memory allocation, and data movement dominate for single-sample inference at this scale. The speedup claim holds only on GPU, where inference is parallelised across thousands of cores and the overhead amortises across large batches. This makes EC2 GPU deployment a scientific requirement for the efficiency argument in RQ1, not merely an engineering convenience.
