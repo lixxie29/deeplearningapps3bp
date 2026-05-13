@@ -131,6 +131,53 @@ three_body_dl/
 - Distance to known points: <0.2 units
 - Demonstrates unsupervised learning of physics
 
+## Running on EC2
+
+### Connect to instance
+
+1. Go to AWS EC2 console → find your instance → **Start instance** → copy the **Public IPv4 address** (changes every time you stop/start)
+2. SSH in from your terminal:
+```bash
+ssh -i ~/Desktop/3bpec2.pem ubuntu@<your-ec2-ip>
+```
+
+### Set up environment
+
+```bash
+source /opt/tensorflow/bin/activate
+cd deeplearningapps3bp
+git pull origin <branch-name>
+git checkout <branch-name>
+```
+
+### Configure AWS credentials (first time only)
+
+```bash
+aws configure
+# Enter: Access Key ID, Secret Access Key, region (us-east-1), output format (json)
+```
+
+### Start training in background
+
+```bash
+nohup python run_all.py > training_log_smoke_test_45k.txt 2>&1 &
+echo $!
+```
+
+`nohup` keeps training running even if your SSH connection drops. `echo $!` prints the process ID in case you need to kill it.
+
+### Monitor progress
+
+```bash
+tail -f training_log_smoke_test_45k.txt
+```
+
+Press `Ctrl+C` to stop watching the log — this does **not** stop the training.
+
+### Stop instance when done
+
+Go to EC2 console → select instance → **Instance state → Stop instance**. Results are automatically uploaded to S3 at the end of `run_all.py`.
+
 ## Theoretical Background
 
 This project is based on the restricted circular three-body problem from celestial mechanics:
