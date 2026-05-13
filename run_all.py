@@ -23,7 +23,7 @@ def main():
         from data_generation import ThreeBodyDataGenerator
         generator = ThreeBodyDataGenerator()
         dataset = generator.generate_balanced_dataset(
-            target_counts={0: 30000, 1: 15000, 2: 30000, 3: 15000},
+            target_counts={0: 15000, 1: 7500, 2: 15000, 3: 7500},
             mu_range=(0.1, 0.4),
             t_max=50,
             n_points=500,
