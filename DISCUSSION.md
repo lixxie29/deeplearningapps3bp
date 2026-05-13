@@ -552,4 +552,15 @@ Epoch  8: train MAE 0.1814, val MAE 0.1980
 Epoch 12: train MAE 0.1710, val MAE 0.2106
 ```
 
-This is not overfitting — both curves are declining and the gap is small. The increased IC space coverage from ~10× more trajectories has given the model enough nearby training examples to interpolate rather than memorise. Whether the model ultimately converges to a test MAE that approaches LSTM/GRU remains to be seen, but the training dynamic confirms the hypothesis from the local run: the Breen failure was a data coverage problem, not an architectural one.
+The model ultimately converged at approximately **epoch 99**, plateauing at:
+
+```
+Train MAE: 0.1291
+Val MAE:   0.1818
+```
+
+The learning rate was halved repeatedly by ReduceLROnPlateau — reaching 9.77e-07 by epoch 97 — confirming the model had fully converged and early stopping was imminent. The train/val gap of 0.1291 vs 0.1818 indicates mild overfitting at convergence, but nothing like the catastrophic divergence seen locally.
+
+**The result is 2.5× better than the local run (0.1818 vs 0.4577 val MAE) from data volume alone.** No architecture changes, no hyperparameter tuning — the improvement is entirely attributable to 10× more IC space coverage. This directly validates the hypothesis from the local run: the Breen failure was a data coverage problem, not an architectural one.
+
+The gap between Breen (val MAE ~0.18) and the local LSTM/GRU results (test MAE ~0.019) remains large — roughly 9×. This gap is expected to narrow when LSTM/GRU are retrained on the same 37,846-trajectory dataset, since the sequence models also benefit from more diverse trajectories. The relative comparison at matched data scale is the experiment that matters.
