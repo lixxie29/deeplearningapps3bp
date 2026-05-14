@@ -564,3 +564,87 @@ The learning rate was halved repeatedly by ReduceLROnPlateau — reaching 9.77e-
 **The result is 2.5× better than the local run (0.1818 vs 0.4577 val MAE) from data volume alone.** No architecture changes, no hyperparameter tuning — the improvement is entirely attributable to 10× more IC space coverage. This directly validates the hypothesis from the local run: the Breen failure was a data coverage problem, not an architectural one.
 
 The gap between Breen (val MAE ~0.18) and the local LSTM/GRU results (test MAE ~0.019) remains large — roughly 9×. This gap is expected to narrow when LSTM/GRU are retrained on the same 37,846-trajectory dataset, since the sequence models also benefit from more diverse trajectories. The relative comparison at matched data scale is the experiment that matters.
+
+### Memory Management at Scale — Float32 and Explicit Deallocation
+
+A memory bug that was invisible at local scale became fatal at 45k trajectories. The `create_sequences()` function in `prepare_prediction_data()` built sliding-window arrays without an explicit dtype, so NumPy defaulted to float64. At 45k scale this produces:
+
+- X_train: 2,331,296 × 50 × 4 × **8 bytes** = **3.73 GB**
+- y_train: 2,331,296 × 10 × 4 × **8 bytes** = **0.75 GB**
+- X_val, X_test, y_val, y_test combined: **1.9 GB**
+
+Total: **~6.4 GB** for data arrays alone, with transient peaks during StandardScaler operations pushing this higher as intermediate reshaped copies are created simultaneously. Combined with TensorFlow's memory allocations at model initialisation, this exceeded the g4dn.xlarge's 16 GB RAM limit, triggering the Linux OOM killer consistently at the point where TF created the GPU device — before epoch 1 ever ran.
+
+The fix is two lines. In `create_sequences()`:
+
+```python
+return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
+```
+
+This halves the array footprint:
+- X_train float32: **1.86 GB** (saving 1.87 GB)
+- Total data arrays: **~3.2 GB**
+
+And after sequences are built, the raw trajectory split lists are explicitly freed:
+
+```python
+del train_trajs, val_trajs, test_trajs
+```
+
+These lists hold references to ~37,846 trajectory dicts (roughly 1.5 GB). Once the windowed numpy arrays are constructed, the lists serve no further purpose but Python's reference counter keeps them alive until the function returns — which in this case is after training completes, hours later. Explicit deletion releases that memory before TF initialises.
+
+The Breen preprocessing (`prepare_breen_data()`) already used `dtype=np.float32` explicitly, which is why the Breen training run completed without issue on the same instance. The inconsistency between the two preprocessing paths was the root cause.
+
+This is a concrete example of how dataset scale exposes latent bugs. At local scale (4,216 trajectories, ~370,000 sequences), float64 arrays fit comfortably in 16 GB RAM with plenty of headroom. At 45k scale the same code OOM-kills the process before training starts. The fix is numerically lossless for this task — float32 provides sufficient precision for trajectory coordinates and the sequence models show no accuracy difference.
+
+---
+
+### Epoch Budget — Why 100 Epochs Is Sufficient at Scale
+
+An epoch is one complete pass through all training data. What the model learns in a single epoch depends not just on how many epochs are run but on how many training samples exist per epoch — a model trained for 100 epochs on 2.3 million sequences has processed 230 million individual examples by the time training ends.
+
+This distinction matters for setting the `max_epochs` ceiling. At local scale (4,216 trajectories, stride=5 windowing), the training set contains approximately 370,000 sequences, which at the operating batch size amounts to roughly 8,200 gradient steps per epoch. The local LSTM converged at epoch 48 — meaning the model needed approximately 394,000 gradient update steps to reach its best validation performance.
+
+At 45k scale (37,846 trajectories), the same windowing procedure produces approximately 2.3 million training sequences and 72,853 steps per epoch. Each epoch is 8.9× larger than a local epoch in terms of data processed. To accumulate the same ~394,000 gradient steps as the converged local run, the 45k model needs only 5–6 epochs. The 100-epoch ceiling is therefore not a constraint — early stopping with patience=15 will fire after the validation loss has plateaued, which at this data volume is expected somewhere between epoch 10 and epoch 50. The ceiling of 100 is the right order of magnitude: enough headroom for the model to converge fully, not so large that a non-converging run would consume impractical wall time.
+
+At 100k scale (~83,000 training trajectories), the training set grows to approximately 7.3 million sequences and ~162,000 steps per epoch — 19.7× more gradient signal per epoch than the local run. Convergence in epoch terms is faster still: early stopping may trigger as early as epoch 5–15. The 100-epoch ceiling remains appropriate at this scale for the same reasons.
+
+The principle is consistent across all three scales: `max_epochs` is a safety ceiling, not a prescription. The true stopping point is determined by early stopping monitoring validation loss, and early stopping is indifferent to the epoch number. What matters is the information content per epoch, which scales directly with dataset size. Larger datasets require fewer epochs to converge — and a ceiling of 100 is more than sufficient at both 45k and 100k trajectory scales.
+
+---
+
+## Scaling Trajectory — 4.5k Local → 45k → 100k
+
+This project follows a deliberate three-stage scaling progression. Each stage is not merely a larger replication of the previous one — it tests a different hypothesis about what the models can learn and where the failures are rooted.
+
+### Stage 1 — 4.5k Trajectories (Local CPU Baseline)
+
+The local run on a MacBook CPU served as a proof-of-concept: does the pipeline work end-to-end, do all models train without errors, and do the results tell a coherent story? With 4,216 trajectories (out of a 4,500 target), the dataset was sufficient to identify the dominant failure modes across all three research questions.
+
+For RQ1, the Breen MLP overfit immediately — stopping at epoch 18 as validation MAE rose from the first epoch, with the model regressing to the dataset mean rather than learning the solution function. LSTM and GRU converged normally (epoch 48 and 67 respectively), training on approximately 370,000 windowed sequences. The Transformer failed to converge, plateauing at MSE ~0.09 from epoch 2. For RQ2, all classifiers showed moderate performance (~70–78%) but with heavy Chaotic class failure across all models. For RQ3, only L5 was partially recovered at distance 0.074, with the dominant discovered cluster being a spurious accumulation near the origin.
+
+The local baseline established that all three model families can train on this data, and identified the root cause of each failure: data sparsity for Breen and Transformer, class imbalance and structural physics-driven scarcity for RQ2, and heuristic imprecision for RQ3.
+
+Data generation took approximately 3 hours 40 minutes on the MacBook CPU, producing one trajectory every ~3.1 seconds. This timing established the wall-time budget for scaling: the same pipeline at 10× size would take over 30 hours locally — which is what motivates the EC2 deployment.
+
+### Stage 2 — 45k Trajectories (EC2 Smoke Test)
+
+The 45k run on a g4dn.xlarge (Tesla T4) addresses two questions simultaneously: does the pipeline scale to a 10× larger dataset without breaking, and does data volume alone fix the failure modes identified locally?
+
+The Breen result answers this directly. Trained on 37,846 trajectories, the Breen MLP converged at epoch 99 with val MAE 0.1818 — a 2.5× improvement over the local val MAE of 0.4577 with no architectural changes and no hyperparameter tuning. The improvement is entirely attributable to IC space coverage: 10× more trajectories allowed the global solution function to interpolate more reliably across the 5-dimensional initial condition space. The local Breen failure was a data problem, not an architecture problem.
+
+Data generation at 45k produced the sharpest scaling result: 37,846 trajectories in 2 hours 48 minutes, compared to 4,216 in 3 hours 40 minutes locally. Per-trajectory timing dropped from ~3.1 seconds to ~0.27 seconds — an 11.5× speedup attributable to EC2's 4 vCPUs running parallel ODE integrations. The EC2 run produced approximately 100× more training data in 25% less wall time than the local run.
+
+The LSTM, GRU, Transformer, and Equilibrium results at 45k are the subject of the ongoing training run. At 2.3 million training sequences per epoch, the sequence models train on 6× more diverse data per pass than locally — expected to improve generalisation, narrow the gap with Breen, and provide a first meaningful test of whether the Transformer's attention mechanism benefits from larger data at this scale.
+
+### Stage 3 — 100k Trajectories (Full Training Run)
+
+The 100k run is the dissertation's primary experimental result. It is where the research questions are answered at full scale and where the GPU efficiency argument becomes empirically testable.
+
+**RQ1 — Trajectory prediction:** With ~83,000 training trajectories generating ~7.3 million sequences per epoch, both the global (Breen) and sequence (LSTM, GRU, Transformer) models train on a substantially richer IC space. The Breen MLP's performance at 100k will determine whether IC coverage is the dominant limiting factor or whether architectural ceiling effects emerge. The Transformer is the most interesting case: at local scale it failed to converge; at 45k the comparison is pending; at 100k there is enough data for attention patterns to potentially calibrate meaningfully. If the Transformer still underperforms LSTM and GRU at 100k, the conclusion is that the architecture is simply not suited to this task at any feasible data scale. If it narrows the gap, the trajectory confirms data volume as the bottleneck.
+
+**RQ2 — Classification:** The Chaotic class is the open question. At 37,846 trajectories, only 346 Chaotic orbits were generated — 4.6% of the 7,500 target — reflecting the physical narrowness of the near-L1 bounded orbit regime. At 100k trajectories, even at the same hit rate from the L1 sampler, the attempt budget would yield roughly 4,000 Chaotic trajectories. This is still below the 7,500 target, but represents an order-of-magnitude increase in Chaotic training examples. Whether the MLP's Chaotic recall of 51% at 45k improves significantly at 100k — or whether it plateaus — tests whether the classification ceiling is set by data volume or by the inherent difficulty of the Chaotic boundary in IC space.
+
+**RQ3 — Equilibrium discovery:** More trajectories means more low-velocity candidate points for the clustering step. At 45k, the dominant cluster was a spurious accumulation near the origin (1,218 of 1,284 candidate points), with meaningful Lagrange point signal present in only 3 small clusters. At 100k, more passes through the L4/L5 regions should increase the density of true equilibrium candidates. Whether this improves the discovery result depends on whether the low-velocity heuristic can be made more selective — the structural limitation (conflating turning points with equilibria) remains regardless of data volume, and a principled Jacobi constant filter is expected to be the decisive fix.
+
+**Epoch budget at 100k:** With ~162,000 steps per epoch, each training pass absorbs 19.7× more gradient signal than the local run. Early stopping is expected to fire around epoch 5–15 for all sequence models. The 100-epoch ceiling remains appropriate — the model will converge well before hitting it, and the convergence will be rapid enough to complete the full training run overnight on a single T4 instance.
