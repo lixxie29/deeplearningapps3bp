@@ -122,8 +122,6 @@ class DataPreprocessor:
 
         del train_trajs, val_trajs, test_trajs
 
-        del train_trajs, val_trajs, test_trajs, self.dataset
-
         # Step 3: Normalize — fit scaler on train only
         n_train, n_val, n_test = X_train.shape[0], X_val.shape[0], X_test.shape[0]
 
