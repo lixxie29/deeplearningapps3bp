@@ -3,6 +3,7 @@ Training Script for Prediction Task (RQ1)
 Trains LSTM/GRU models to predict future trajectory points
 """
 
+import gc
 import numpy as np
 import pickle
 import time
@@ -51,15 +52,25 @@ def train_prediction_models():
     predictions_lstm = lstm.predict(data['X_test'][:100], verbose=0)
     lstm_time = time.time() - start
     
+    # Precompute per-sample predictions for plotting before freeing memory
+    sample_preds_lstm = []
+    for idx in range(3):
+        pred = lstm.predict(data['X_test'][idx][np.newaxis, ...], verbose=0)[0]
+        sample_preds_lstm.append(pred)
+
     results['LSTM'] = {
-        'model': lstm,
         'history': history_lstm.history,
         'test_loss': test_loss,
         'test_mae': test_mae,
         'predictions': predictions_lstm,
+        'sample_preds': sample_preds_lstm,
         'inference_time': lstm_time / 100  # per sample
     }
-    
+
+    del lstm, history_lstm
+    tf.keras.backend.clear_session()
+    gc.collect()
+
     # 2. GRU
     print("\n" + "="*50)
     print("Training GRU Predictor")
@@ -90,15 +101,24 @@ def train_prediction_models():
     predictions_gru = gru.predict(data['X_test'][:100], verbose=0)
     gru_time = time.time() - start
     
+    sample_preds_gru = []
+    for idx in range(3):
+        pred = gru.predict(data['X_test'][idx][np.newaxis, ...], verbose=0)[0]
+        sample_preds_gru.append(pred)
+
     results['GRU'] = {
-        'model': gru,
         'history': history_gru.history,
         'test_loss': test_loss,
         'test_mae': test_mae,
         'predictions': predictions_gru,
+        'sample_preds': sample_preds_gru,
         'inference_time': gru_time / 100
     }
-    
+
+    del gru, history_gru
+    tf.keras.backend.clear_session()
+    gc.collect()
+
     # 3. Transformer
     print("\n" + "="*50)
     print("Training Transformer Predictor")
@@ -128,13 +148,16 @@ def train_prediction_models():
     transformer_time = time.time() - start
 
     results['Transformer'] = {
-        'model': transformer,
         'history': history_transformer.history,
         'test_loss': test_loss,
         'test_mae': test_mae,
         'predictions': predictions_transformer,
         'inference_time': transformer_time / 100
     }
+
+    del transformer, history_transformer
+    tf.keras.backend.clear_session()
+    gc.collect()
 
     # 4. Compare with numerical integration time
     print("\n" + "="*50)
@@ -201,9 +224,9 @@ def train_prediction_models():
         X_sample = data['X_test'][idx].copy()  # Shape: [50, 4]
         y_true = data['y_test'][idx].copy()     # Shape: [10, 4]
         
-        # Predictions
-        y_pred_lstm = results['LSTM']['model'].predict(X_sample[np.newaxis, ...], verbose=0)[0]
-        y_pred_gru = results['GRU']['model'].predict(X_sample[np.newaxis, ...], verbose=0)[0]
+        # Predictions (precomputed before models were freed)
+        y_pred_lstm = results['LSTM']['sample_preds'][idx]
+        y_pred_gru = results['GRU']['sample_preds'][idx]
         
         # Inverse transform (denormalize)
         scaler = data['scaler']
