@@ -120,6 +120,7 @@ class DataPreprocessor:
         X_val,   y_val   = create_sequences(val_trajs,   input_length, output_length)
         X_test,  y_test  = create_sequences(test_trajs,  input_length, output_length)
 
+        n_train_trajs, n_val_trajs, n_test_trajs = len(train_trajs), len(val_trajs), len(test_trajs)
         del train_trajs, val_trajs, test_trajs
 
         # Step 3: Normalize — fit scaler on train only
@@ -137,7 +138,7 @@ class DataPreprocessor:
         print(f"\n{'='*50}")
         print(f"Prediction Dataset Statistics (No Data Leakage)")
         print(f"{'='*50}")
-        print(f"Trajectories — Train: {len(train_trajs)}, Val: {len(val_trajs)}, Test: {len(test_trajs)}")
+        print(f"Trajectories — Train: {n_train_trajs}, Val: {n_val_trajs}, Test: {n_test_trajs}")
         print(f"Sequences    — Train: {n_train}, Val: {n_val}, Test: {n_test}")
         print(f"Input shape: {X_train.shape}, Output shape: {y_train.shape}")
         print(f"{'='*50}\n")
