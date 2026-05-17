@@ -1,7 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(ssh -i ~/Desktop/3bpec2.pem ubuntu@32.197.14.218 \"conda env list 2>/dev/null || ls /opt/conda/envs/ 2>/dev/null || ls ~/anaconda3/envs/ 2>/dev/null\")"
-    ]
-  }
-}
