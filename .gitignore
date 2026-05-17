@@ -40,3 +40,7 @@ Thumbs.db
 
 # Local notes
 EXPLAINER.md
+
+# Secrets
+.env
+.claude/
