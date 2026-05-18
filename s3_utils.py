@@ -7,7 +7,7 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 
-BUCKET = 'three-body-dl-data-894650614445-us-east-1-an'
+BUCKET = os.environ.get('S3_BUCKET', 'three-body-dl-data')
 
 RESULT_FILES = [
     'three_body_dataset.pkl',
