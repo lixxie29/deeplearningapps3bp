@@ -85,13 +85,14 @@ def build_gru_predictor(input_length=50, input_dim=4, output_length=10):
         layers.GRU(64, return_sequences=True),
         layers.TimeDistributed(layers.Dense(input_dim))
     ])
-    
+
+    # clipnorm=1.0 prevents the gradient spike at epoch ~4–5 observed at 45k scale
     model.compile(
-        optimizer='adam',
+        optimizer=tf.keras.optimizers.Adam(clipnorm=1.0),
         loss='mse',
         metrics=['mae']
     )
-    
+
     return model
 
 def build_transformer_predictor(input_length=50, input_dim=4, output_length=10,
@@ -142,6 +143,51 @@ def build_transformer_predictor(input_length=50, input_dim=4, output_length=10,
     x = layers.RepeatVector(output_length)(x)
     x = layers.TimeDistributed(layers.Dense(dff, activation='relu'))(x)
     outputs = layers.TimeDistributed(layers.Dense(input_dim))(x)
+
+    model = tf.keras.Model(inputs, outputs)
+    model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+    return model
+
+
+def build_itransformer_predictor(input_length=50, input_dim=4, output_length=10,
+                                  d_model=64, num_heads=4, num_layers=2, dff=128, dropout_rate=0.1):
+    """
+    iTransformer: attention across variates (features), not time steps.
+
+    The standard Transformer treats each time step as a token (50 tokens of dim 4).
+    iTransformer inverts this: each phase-space coordinate (ξ, η, vξ, vη) becomes a
+    token, and its full time series is the embedding. Attention then captures cross-
+    dimensional couplings — physically motivated because position and velocity are
+    linked by the RC3BP equations of motion.
+
+    Liu et al. (2024) "iTransformer: Inverted Transformers Are Effective for Time
+    Series Forecasting"
+    """
+    inputs = layers.Input(shape=(input_length, input_dim))  # (batch, T=50, D=4)
+
+    # Invert: treat each variate as a token with its time series as the embedding
+    x = layers.Permute((2, 1))(inputs)   # (batch, D=4, T=50)
+
+    # Project each variate's time series to d_model-dimensional token embedding
+    x = layers.Dense(d_model)(x)         # (batch, 4, d_model)
+    x = layers.LayerNormalization(epsilon=1e-6)(x)
+
+    # Transformer encoder blocks — attention runs across the 4 variate tokens
+    for _ in range(num_layers):
+        attn = layers.MultiHeadAttention(num_heads=num_heads, key_dim=d_model // num_heads)(x, x)
+        attn = layers.Dropout(dropout_rate)(attn)
+        x = layers.LayerNormalization(epsilon=1e-6)(x + attn)
+
+        ffn = layers.Dense(dff, activation='relu')(x)
+        ffn = layers.Dense(d_model)(ffn)
+        ffn = layers.Dropout(dropout_rate)(ffn)
+        x = layers.LayerNormalization(epsilon=1e-6)(x + ffn)
+
+    # Decode each variate token to output_length future steps
+    x = layers.Dense(output_length)(x)   # (batch, 4, output_length)
+
+    # Re-invert back to (batch, output_length, 4)
+    outputs = layers.Permute((2, 1))(x)
 
     model = tf.keras.Model(inputs, outputs)
     model.compile(optimizer='adam', loss='mse', metrics=['mae'])

@@ -7,6 +7,7 @@ __pycache__/
 env/
 venv/
 *.egg-info/
+.env
 
 # Data files
 *.pkl
@@ -15,6 +16,7 @@ venv/
 *.hdf5
 *.txt
 *.keras
+*.json
 
 # TensorFlow
 *.pb
@@ -41,6 +43,10 @@ Thumbs.db
 # Local notes
 EXPLAINER.md
 
-# Secrets
-.env
-.claude/
+# Allow archived local results (figures and small result files only — not the dataset)
+!results_local_4500/
+!results_local_4500/*.png
+!results_local_4500/classification_results.pkl
+!results_local_4500/prediction_results.pkl
+!results_local_4500/breen_results.pkl
+!results_local_4500/equilibrium_discovery_results.pkl

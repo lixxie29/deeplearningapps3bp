@@ -7,14 +7,29 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 
-BUCKET = os.environ.get('S3_BUCKET', 'three-body-dl-data')
+BUCKET = 'three-body-dl-data-894650614445-us-east-1-an'
 
 RESULT_FILES = [
+    # Dataset
     'three_body_dataset.pkl',
+    # Results pickles
     'classification_results.pkl',
     'prediction_results.pkl',
     'breen_results.pkl',
     'equilibrium_discovery_results.pkl',
+    # Saved model weights
+    'lstm_model.keras',
+    'gru_model.keras',
+    'transformer_model.keras',
+    'itransformer_model.keras',
+    'breen_model.keras',
+    # Per-epoch training logs (reproducibility audit trail)
+    'lstm_training_log.csv',
+    'gru_training_log.csv',
+    'transformer_training_log.csv',
+    'itransformer_training_log.csv',
+    'breen_training_log.csv',
+    # Figures
     'classification_confusion_matrices.png',
     'prediction_training_history.png',
     'prediction_examples.png',
