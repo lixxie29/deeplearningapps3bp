@@ -149,6 +149,42 @@ def build_transformer_predictor(input_length=50, input_dim=4, output_length=10,
     return model
 
 
+def build_transformer_predictor_revised(input_length=50, input_dim=4, output_length=10,
+                                        d_model=64, num_heads=2, num_layers=2, dff=128, dropout_rate=0.1):
+    """
+    Revised Transformer (dissertation Section 6.2.4):
+    - num_heads 4→2 (less overparameterised for 4D input)
+    - Learnable positional embedding replaces fixed sinusoidal encoding
+    - LR 1e-3→1e-4 (original flat loss suspected to be overshooting)
+    """
+    inputs = layers.Input(shape=(input_length, input_dim))
+
+    x = layers.Dense(d_model)(inputs)
+
+    positions = tf.cast(tf.range(input_length), tf.int32)
+    pos_embed = layers.Embedding(input_length, d_model)(positions)
+    x = x + pos_embed
+
+    for _ in range(num_layers):
+        attn_output = layers.MultiHeadAttention(num_heads=num_heads, key_dim=d_model // num_heads)(x, x)
+        attn_output = layers.Dropout(dropout_rate)(attn_output)
+        x = layers.LayerNormalization(epsilon=1e-6)(x + attn_output)
+
+        ffn = layers.Dense(dff, activation='relu')(x)
+        ffn = layers.Dense(d_model)(ffn)
+        ffn = layers.Dropout(dropout_rate)(ffn)
+        x = layers.LayerNormalization(epsilon=1e-6)(x + ffn)
+
+    x = layers.GlobalAveragePooling1D()(x)
+    x = layers.RepeatVector(output_length)(x)
+    x = layers.TimeDistributed(layers.Dense(dff, activation='relu'))(x)
+    outputs = layers.TimeDistributed(layers.Dense(input_dim))(x)
+
+    model = tf.keras.Model(inputs, outputs)
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4), loss='mse', metrics=['mae'])
+    return model
+
+
 def build_itransformer_predictor(input_length=50, input_dim=4, output_length=10,
                                   d_model=64, num_heads=4, num_layers=2, dff=128, dropout_rate=0.1):
     """

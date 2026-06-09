@@ -17,6 +17,7 @@ venv/
 *.txt
 *.keras
 *.json
+*.csv
 
 # TensorFlow
 *.pb

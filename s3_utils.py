@@ -21,12 +21,14 @@ RESULT_FILES = [
     'lstm_model.keras',
     'gru_model.keras',
     'transformer_model.keras',
+    'transformer_revised_model.keras',
     'itransformer_model.keras',
     'breen_model.keras',
     # Per-epoch training logs (reproducibility audit trail)
     'lstm_training_log.csv',
     'gru_training_log.csv',
     'transformer_training_log.csv',
+    'transformer_revised_training_log.csv',
     'itransformer_training_log.csv',
     'breen_training_log.csv',
     # Figures

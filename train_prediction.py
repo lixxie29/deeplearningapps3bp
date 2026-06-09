@@ -7,7 +7,7 @@ import numpy as np
 import pickle
 import time
 from preprocessing import DataPreprocessor
-from models import build_lstm_predictor, build_gru_predictor, build_transformer_predictor, build_itransformer_predictor
+from models import build_lstm_predictor, build_gru_predictor, build_transformer_predictor, build_transformer_predictor_revised, build_itransformer_predictor
 import matplotlib.pyplot as plt
 import tensorflow as tf
 
@@ -137,7 +137,41 @@ def train_prediction_models(smoke=False, seed=42):
         'inference_time': transformer_time / 100,
     }
 
-    # 4. iTransformer
+    # 4. Transformer (revised) — ablation for Section 6.2.4
+    print("\n" + "="*50)
+    print("Training Transformer (revised) Predictor")
+    print("="*50)
+
+    transformer_rev = build_transformer_predictor_revised(input_length=50, output_length=10)
+
+    history_transformer_rev = transformer_rev.fit(
+        data['X_train'], data['y_train'],
+        validation_data=(data['X_val'], data['y_val']),
+        epochs=_epochs,
+        batch_size=32,
+        verbose=1,
+        callbacks=_prediction_callbacks('transformer_revised'),
+    )
+    transformer_rev.save('transformer_revised_model.keras')
+
+    test_loss, test_mae = transformer_rev.evaluate(data['X_test'], data['y_test'], verbose=0)
+    print(f"\nTransformer (revised) Test Loss (MSE): {test_loss:.6f}")
+    print(f"Transformer (revised) Test MAE: {test_mae:.6f}")
+
+    start = time.time()
+    predictions_transformer_rev = transformer_rev.predict(data['X_test'][:100], verbose=0)
+    transformer_rev_time = time.time() - start
+
+    results['Transformer (revised)'] = {
+        'model': transformer_rev,
+        'history': history_transformer_rev.history,
+        'test_loss': test_loss,
+        'test_mae': test_mae,
+        'predictions': predictions_transformer_rev,
+        'inference_time': transformer_rev_time / 100,
+    }
+
+    # 5. iTransformer
     print("\n" + "="*50)
     print("Training iTransformer Predictor")
     print("="*50)
@@ -223,10 +257,11 @@ def train_prediction_models(smoke=False, seed=42):
 
     # 7. Visualize example predictions
     model_styles = {
-        'LSTM':         ('b', '--', 's'),
-        'GRU':          ('r', ':',  '^'),
-        'Transformer':  ('m', '-.', 'D'),
-        'iTransformer': ('c', '--', 'o'),
+        'LSTM':                 ('b', '--', 's'),
+        'GRU':                  ('r', ':',  '^'),
+        'Transformer':          ('m', '-.', 'D'),
+        'Transformer (revised)':('g', '--', 'P'),
+        'iTransformer':         ('c', '--', 'o'),
     }
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 
