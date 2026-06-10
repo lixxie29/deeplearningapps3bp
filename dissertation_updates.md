@@ -212,7 +212,71 @@ touch those paragraphs.
 
 ---
 
-## 5. Reproducibility — what to state in the methods section
+## 5. Getting the results onto your Mac + which plots to use
+
+### Download from S3 (do this on your Mac, not EC2)
+
+Make sure AWS CLI is configured, then run from the project directory:
+
+```bash
+python - <<'EOF'
+from s3_utils import download
+files = [
+    'prediction_results.pkl',
+    'breen_results.pkl',
+    'prediction_training_history.png',
+    'prediction_examples.png',
+]
+for f in files:
+    download(f)
+EOF
+```
+
+Or download everything:
+```bash
+python -c "from s3_utils import download; [download(f) for f in ['prediction_training_history.png','prediction_examples.png','prediction_results.pkl','breen_results.pkl']]"
+```
+
+Alternatively, `scp` directly from EC2:
+```bash
+scp -i your-key.pem ubuntu@<EC2-IP>:~/deeplearningapps3bp/prediction_training_history.png .
+scp -i your-key.pem ubuntu@<EC2-IP>:~/deeplearningapps3bp/prediction_examples.png .
+```
+
+---
+
+### Which plots to replace or add in the dissertation
+
+| Plot file | Status | What to do |
+|---|---|---|
+| `prediction_training_history.png` | **REPLACE** — now shows 5 models (was 3) | Swap the figure in Section 5.2 |
+| `prediction_examples.png` | **REPLACE** — now shows 5 models (was 3) | Swap the figure in Section 5.2 |
+| `classification_confusion_matrices.png` | Unchanged | Leave as-is |
+| `breen_training_history.png` | Unchanged | Leave as-is |
+| `breen_prediction_examples.png` | Unchanged | Leave as-is |
+| `lagrange_point_discovery.png` | Unchanged | Leave as-is |
+
+Only two figures need to be swapped. Everything else stays.
+
+---
+
+### What each new plot shows
+
+**`prediction_training_history.png`** — two panels:
+- Left: training + validation loss (MSE, log scale) for all 5 models across epochs
+- Right: training + validation MAE for all 5 models
+- Use this as Figure X.X "Training convergence of prediction models"
+- Caption note: *"LSTM and iTransformer converge to the lowest validation loss. Both Transformer variants plateau significantly higher, indicating the architecture is less suited to this task."*
+
+**`prediction_examples.png`** — 2×3 grid:
+- Top row: trajectory in (ξ, η) phase space — input path, true continuation, each model's prediction
+- Bottom row: same samples plotted as ξ coordinate over time steps 0–60
+- Use this as Figure X.X "Example trajectory predictions"
+- Caption note: *"All five models are shown. LSTM and iTransformer predictions closely track the true trajectory; both Transformer variants diverge at longer horizons."*
+
+---
+
+## 6. Reproducibility — what to state in the methods section
 
 Add one paragraph to the Methods chapter (Section 4 or wherever training setup is described):
 
@@ -228,7 +292,7 @@ Add one paragraph to the Methods chapter (Section 4 or wherever training setup i
 
 ---
 
-## 6. Branch strategy
+## 7. Branch strategy
 
 ```
 main                         ← stable; original results; safe to cite
@@ -247,7 +311,7 @@ Cite the tag hash in the dissertation methods section as the exact reproducible 
 
 ---
 
-## 7. What is NOT changing
+## 8. What is NOT changing
 
 To be explicit about what you don't need to touch:
 
@@ -261,3 +325,38 @@ To be explicit about what you don't need to touch:
 - Breen MLP architecture — unchanged
 - Background chapter (except adding iTransformer implementation detail)
 - RQ2 and RQ3 results sections — unchanged
+
+---
+
+## 9. Complete dissertation checklist (do in this order)
+
+### Step A — Wait for seeds 123 and 456 (EC2)
+- [ ] Run `python train_prediction.py --seed 123` and record MAE values
+- [ ] Run `python train_breen_baseline.py --seed 123` and record Breen MAE
+- [ ] Run `python train_prediction.py --seed 456` and record MAE values
+- [ ] Run `python train_breen_baseline.py --seed 456` and record Breen MAE
+- [ ] Fill in the mean ± std table in Section 3 of this file
+
+### Step B — Download results to Mac
+- [ ] Download `prediction_training_history.png` from S3 or EC2
+- [ ] Download `prediction_examples.png` from S3 or EC2
+- [ ] Verify both images look correct (5 models visible, legend readable)
+
+### Step C — Update the dissertation document
+- [ ] **Table 5.2**: Replace with the new table structure (Section 4 of this file). Fill in mean ± std once you have them; until then use seed 42 values.
+- [ ] **Section 5.2** (prediction narrative): Add the iTransformer paragraph (Section 4 of this file)
+- [ ] **Section 5.2**: Add the GRU clipnorm sentence after GRU discussion
+- [ ] **Section 5.2**: Add the Transformer revised sentence after Transformer discussion
+- [ ] **Figure — training history**: Replace the old `prediction_training_history.png` with the new one. Update caption.
+- [ ] **Figure — example predictions**: Replace the old `prediction_examples.png` with the new one. Update caption.
+- [ ] **Section 6.2.3** (GRU future work): Append the "fix was implemented" sentence (Section 4 of this file)
+- [ ] **Section 6.2.4** (Transformer future work): Append the "all three changes implemented" sentence (Section 4 of this file)
+- [ ] **Section 6.2** (iTransformer "to be incorporated"): Replace with "was implemented; results in Table 5.2"
+- [ ] **Methods/reproducibility section**: Add the seeds + CSVLogger paragraph (Section 6 of this file)
+- [ ] **Conclusions**: Add 2–3 sentences noting iTransformer as best model, Transformer underperformance finding
+
+### Step D — Finalise code
+- [ ] Merge `feature/transformer-revision` into `main`
+- [ ] Tag `v1.0-final-results`
+- [ ] Push to GitHub
+- [ ] Note the commit hash in dissertation methods as the reproducible codebase reference
