@@ -11,71 +11,119 @@ Read top-to-bottom the first time; use as a checklist afterwards.
 |---|---|
 | `models.py` | GRU optimizer: `'adam'` → `Adam(clipnorm=1.0)` |
 | `models.py` | iTransformer added as new model (`build_itransformer_predictor`) |
-| `models.py` | Transformer: pending revision on `feature/transformer-revision` branch |
-| `train_prediction.py` | Seeds added (`seed=42`); `--smoke` and `--seed` CLI flags |
+| `models.py` | `build_transformer_predictor_revised()` added as separate function (original kept) |
+| `train_prediction.py` | Seeds added (`seed=42`); `--smoke` and `--seed` CLI flags; CSVLogger per model |
 | `train_breen_baseline.py` | Seeds added; CSVLogger added; `--smoke` and `--seed` CLI flags |
 | `s3_utils.py` | Added `.keras` model files and `_training_log.csv` files to upload list |
 
-Nothing else changed. All models still have the same architecture except GRU (one optimizer line) and the pending Transformer revision.
+The Transformer revision adds a *second* function (`build_transformer_predictor_revised`) alongside the original.
+Both are trained in `train_prediction.py` and appear as separate rows in Table 5.2.
+The three changes: `num_heads` 4→2, fixed sinusoidal PE → learnable Embedding, LR 1e-3→1e-4.
 
 ---
 
-## 2. The Transformer revision (still pending)
+## 2. Seed 42 results (EC2 run complete — 2026-06-09/10)
 
-Still to be implemented on `feature/transformer-revision`. Three changes to `build_transformer_predictor`:
+These are the confirmed numbers from the full EC2 run (37,846 trajectories, 2.3M training sequences).
 
-1. `num_heads=4` → `num_heads=2` (less overparameterised for 4D input)
-2. Fixed sinusoidal positional encoding → learnable `Embedding` layer
-3. `optimizer='adam'` → `Adam(learning_rate=1e-4)` (default 1e-3 suspected of overshooting)
+### Prediction models (RQ1)
 
-**Say the word and these get applied.** Nothing else in the codebase changes.
+| Model | Test MSE | Test MAE | Notes |
+|---|---|---|---|
+| **iTransformer** | **0.003675** | **0.016990** | Best overall |
+| LSTM | 0.004085 | 0.018399 | Strong second |
+| GRU (clipnorm=1.0) | 0.005910 | 0.031673 | Gradient clipping fixed epoch-5 spike |
+| Transformer (revised) | 0.074270 | 0.109051 | 2 heads, learnable PE, LR=1e-4 |
+| Transformer | 0.079326 | 0.121387 | Original; LR=1e-3 caused instability |
+
+### Breen baseline (RQ1)
+
+| Model | Test MAE | Training time |
+|---|---|---|
+| Breen MLP | 0.182374 | 1574.6s (stopped epoch 142) |
+
+### Inference speed
+
+| Model | ms/sample | vs numerical |
+|---|---|---|
+| LSTM | 14.6 ms | 0.3× |
+| GRU | 12.9 ms | 0.3× |
+| Transformer | 3.3 ms | 1.1× |
+| Transformer (revised) | 3.3 ms | 1.2× |
+| iTransformer | 3.3 ms | 1.1× |
+| Numerical integration | 3.8 ms | baseline |
+
+**Key finding:** iTransformer achieves the lowest MAE and matches numerical integration speed.
+LSTM/GRU are slower than numerical at this batch size (single-sample inference overhead dominates).
+Both Transformer variants underperform recurrent models — attention across time steps is less suited to this 4D sequential task than attention across variates (iTransformer).
 
 ---
 
-## 3. How to run
+## 3. How to run the remaining seeds (seeds 123 and 456)
 
-### Step 1 — Local smoke test (run this now, takes ~2 minutes)
+Seed 42 is **done**. You need seeds 123 and 456 to compute mean ± std for Table 5.2.
 
-Verifies the code runs without errors. Do this before touching EC2.
-
-```bash
-python train_prediction.py --smoke
-python train_breen_baseline.py --smoke
-```
-
-If both complete without crashing, the code is good.
-
-### Step 2 — EC2 real run (produces final dissertation results)
-
-Run this once per seed. Three seeds = three runs = mean ± std in Table 5.2.
+### On EC2, run in a screen session:
 
 ```bash
-# Seed 1 (primary run)
-python train_prediction.py --seed 42
-python train_breen_baseline.py --seed 42
-
-# Seed 2
-python train_prediction.py --seed 123
-python train_breen_baseline.py --seed 123
-
-# Seed 3
-python train_prediction.py --seed 456
-python train_breen_baseline.py --seed 456
+screen -S seed123
+python train_prediction.py --seed 123 2>&1 | tee seed123_log.txt
+# When done (hours later):
+python train_breen_baseline.py --seed 123 2>&1 | tee seed123_breen_log.txt
 ```
 
-You do **not** re-run classification or equilibrium discovery — those models haven't changed.
+Detach with `Ctrl+A D`. Come back later with `screen -r seed123`.
 
-After all three runs, upload to S3:
+Then repeat for seed 456:
 ```bash
-python -c "from s3_utils import upload_all_results; upload_all_results()"
+screen -S seed456
+python train_prediction.py --seed 456 2>&1 | tee seed456_log.txt
+python train_breen_baseline.py --seed 456 2>&1 | tee seed456_breen_log.txt
 ```
 
-### What gets produced per run
+You do **not** re-run classification or equilibrium discovery — those are unchanged.
 
-- `lstm_model.keras`, `gru_model.keras`, `transformer_model.keras`, `itransformer_model.keras`, `breen_model.keras`
-- `lstm_training_log.csv`, `gru_training_log.csv`, `transformer_training_log.csv`, `itransformer_training_log.csv`, `breen_training_log.csv`
-- `prediction_results.pkl`, `breen_results.pkl`
-- Training history and example prediction plots
+### What each seed run produces
+
+- 5 updated `.keras` model files (overwrite seed 42 files — that's fine, seed 42 is already in S3)
+- 5 updated `_training_log.csv` files
+- Updated `prediction_results.pkl` and `breen_results.pkl`
+- Updated plots
+
+### After each seed run, record the numbers
+
+When `train_prediction.py` finishes, it prints something like:
+```
+LSTM Test Loss (MSE): 0.004085
+LSTM Test MAE: 0.018399
+GRU Test Loss (MSE): 0.005910
+...
+```
+
+Copy those numbers into the table below. Also check `breen_results.pkl` or the Breen print output for Breen MAE.
+
+### Computing mean ± std for Table 5.2
+
+Once you have all three seeds, fill this in:
+
+| Model | Seed 42 MAE | Seed 123 MAE | Seed 456 MAE | Mean ± Std |
+|---|---|---|---|---|
+| iTransformer | 0.016990 | *(record)* | *(record)* | *(compute)* |
+| LSTM | 0.018399 | *(record)* | *(record)* | *(compute)* |
+| GRU (clipnorm=1.0) | 0.031673 | *(record)* | *(record)* | *(compute)* |
+| Transformer (revised) | 0.109051 | *(record)* | *(record)* | *(compute)* |
+| Transformer | 0.121387 | *(record)* | *(record)* | *(compute)* |
+| Breen MLP | 0.182374 | *(record)* | *(record)* | *(compute)* |
+
+Mean = `(a + b + c) / 3`
+Std = `sqrt(((a-mean)² + (b-mean)² + (c-mean)²) / 3)`
+
+Or paste the three numbers into Python:
+```python
+import numpy as np
+vals = [0.016990, SEED123_MAE, SEED456_MAE]
+print(f"{np.mean(vals):.4f} ± {np.std(vals):.4f}")
+```
 
 ---
 
@@ -83,17 +131,24 @@ python -c "from s3_utils import upload_all_results; upload_all_results()"
 
 ### Table 5.2 (main results table for RQ1)
 
-Add these rows. Use the numbers from the three EC2 runs to compute mean ± std.
+Replace the existing table with this structure. Fill in mean ± std once seeds 123 and 456 are done.
+Until then, you can use seed 42 values with a "(seed 42)" note.
 
-| Model | Test MAE | Notes |
-|---|---|---|
-| LSTM | *(existing)* | Unchanged |
-| GRU | *(existing)* | Original run, epoch-5 spike observed |
-| **GRU (clipnorm=1.0)** | *(new EC2 result)* | Gradient clipping applied |
-| Transformer | *(existing)* | Original architecture, flat loss |
-| **Transformer (revised)** | *(new EC2 result)* | 2 heads, learnable PE, LR=1e-4 |
-| **iTransformer** | *(new EC2 result)* | New model, variate-attention |
-| Breen MLP | *(existing or updated)* | |
+| Model | Test MAE | Test MSE | Inference (ms) | Notes |
+|---|---|---|---|---|
+| LSTM | 0.0184 ± σ | 0.0041 ± σ | 14.6 | — |
+| GRU (clipnorm=1.0) | 0.0317 ± σ | 0.0059 ± σ | 12.9 | Gradient clipping |
+| Transformer | 0.1214 ± σ | 0.0793 ± σ | 3.3 | Original architecture |
+| Transformer (revised) | 0.1091 ± σ | 0.0743 ± σ | 3.3 | 2 heads, learnable PE |
+| **iTransformer** | **0.0170 ± σ** | **0.0037 ± σ** | **3.3** | **Best model** |
+| Breen MLP | 0.1824 ± σ | — | — | Direct IC → state mapping |
+| Numerical integration | — | — | 3.8 | Reference baseline |
+
+Add to table caption:
+> *Results are mean ± std over three independent runs with seeds 42, 123, and 456.
+> Transformer (revised) used two attention heads, a learnable positional embedding,
+> and learning rate 1×10⁻⁴. iTransformer applies attention across the four
+> phase-space variates rather than across time steps.*
 
 Add to table caption: *"Rows marked 'revised' reflect targeted architectural changes
 described in Section 6.2. Original and revised rows are both shown to isolate the
@@ -116,15 +171,16 @@ effect of each change. Results are mean ± std over three independent runs with 
 **Add after the GRU discussion** — one sentence:
 
 > The revised GRU with gradient clipping (Table 5.2, GRU clipnorm=1.0) eliminated
-> the epoch-5 validation loss spike and produced [X% lower / comparable] test MAE,
-> confirming gradient explosion as the sole cause of the original instability.
+> the epoch-5 validation loss spike and achieved a test MAE of 0.0317, confirming
+> gradient explosion as the sole cause of the original instability.
 
 **Add after the Transformer discussion** — one sentence:
 
 > The revised Transformer (Table 5.2, Transformer revised) with reduced heads,
-> learnable positional embeddings, and a lower learning rate [improved upon /
-> still underperformed] the original, [suggesting the flat loss was a learning
-> rate issue / confirming the architecture is not suited to this task at this scale].
+> learnable positional embeddings, and learning rate 1×10⁻⁴ improved upon the
+> original (MAE 0.109 vs 0.121), yet both variants remained substantially outperformed
+> by the recurrent and iTransformer models, confirming that temporal self-attention
+> is ill-suited to this 4D phase-space task at this scale.
 
 ### Section 6.2.3 (GRU clipnorm — currently written as future recommendation)
 
