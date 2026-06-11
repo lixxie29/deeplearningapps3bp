@@ -18,7 +18,9 @@ from preprocessing import DataPreprocessor
 from models import build_breen_mlp
 
 
-def train_breen_baseline():
+def train_breen_baseline(smoke=False, seed=42):
+    tf.random.set_seed(seed)
+    np.random.seed(seed)
     print("Loading and preparing data...")
     preprocessor = DataPreprocessor('three_body_dataset.pkl')
     data = preprocessor.prepare_breen_data()
@@ -26,6 +28,9 @@ def train_breen_baseline():
     X_train, y_train = data['X_train'], data['y_train']
     X_val,   y_val   = data['X_val'],   data['y_val']
     X_test,  y_test  = data['X_test'],  data['y_test']
+
+    if smoke:
+        X_train, y_train = X_train[:500], y_train[:500]
 
     print("="*50)
     print("Training Breen MLP Baseline")
@@ -41,13 +46,14 @@ def train_breen_baseline():
         tf.keras.callbacks.ReduceLROnPlateau(
             monitor='val_loss', factor=0.5, patience=7, min_lr=1e-7, verbose=1
         ),
+        tf.keras.callbacks.CSVLogger('breen_training_log.csv'),
     ]
 
     start = time.time()
     history = model.fit(
         X_train, y_train,
         validation_data=(X_val, y_val),
-        epochs=10000,
+        epochs=2 if smoke else 10000,
         batch_size=5000,
         callbacks=callbacks,
         verbose=1,
@@ -172,4 +178,9 @@ def _plot_examples(model, data):
 
 
 if __name__ == "__main__":
-    train_breen_baseline()
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--smoke', action='store_true', help='2-epoch smoke test')
+    parser.add_argument('--seed', type=int, default=42)
+    args = parser.parse_args()
+    train_breen_baseline(smoke=args.smoke, seed=args.seed)
