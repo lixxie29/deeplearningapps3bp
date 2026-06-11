@@ -145,10 +145,9 @@ Until then, you can use seed 42 values with a "(seed 42)" note.
 | Numerical integration | — | — | 3.8 | Reference baseline |
 
 Add to table caption:
-> *Results are mean ± std over three independent runs with seeds 42, 123, and 456.
-> Transformer (revised) used two attention heads, a learnable positional embedding,
-> and learning rate 1×10⁻⁴. iTransformer applies attention across the four
-> phase-space variates rather than across time steps.*
+> *Results reported for seed 42. Transformer (revised) used two attention heads,
+> a learnable positional embedding, and learning rate 1×10⁻⁴. iTransformer applies
+> attention across the four phase-space variates rather than across time steps.*
 
 Add to table caption: *"Rows marked 'revised' reflect targeted architectural changes
 described in Section 6.2. Original and revised rows are both shown to isolate the
@@ -280,15 +279,23 @@ Only two figures need to be swapped. Everything else stays.
 
 Add one paragraph to the Methods chapter (Section 4 or wherever training setup is described):
 
-> All deep learning models were trained with a fixed random seed (seed=42 for the
-> primary run; seeds 42, 123, and 456 for the multi-seed validation). Seeds were
-> applied to both TensorFlow (`tf.random.set_seed`) and NumPy (`np.random.seed`)
-> at the start of each training function, ensuring deterministic weight
-> initialisation and dropout masks. Per-epoch training metrics (loss, validation
-> loss, MAE, validation MAE) were recorded via Keras CSVLogger callbacks and are
-> available alongside the saved model weights at [repository URL / S3 path].
-> Final model weights were saved in the `.keras` format immediately after training,
-> with early stopping configured to restore the best validation-loss checkpoint.
+> All deep learning models were trained with a fixed random seed (seed 42) applied
+> to both TensorFlow (`tf.random.set_seed`) and NumPy (`np.random.seed`) at the
+> start of each training function, ensuring deterministic weight initialisation and
+> dropout masks. Per-epoch training metrics (loss, validation loss, MAE, validation
+> MAE) were recorded via Keras CSVLogger callbacks and are available alongside the
+> saved model weights at [repository URL / S3 path]. Final model weights were saved
+> in the `.keras` format immediately after training, with early stopping configured
+> to restore the best validation-loss checkpoint.
+
+### Future work note — multi-seed validation
+
+Add this sentence to the future work section of the dissertation (wherever limitations are discussed):
+
+> The reproducibility infrastructure required for multi-seed validation — fixed
+> random seeds, per-epoch CSVLogger audit trails, and saved `.keras` model weights
+> — is fully implemented; reporting results as mean ± standard deviation across
+> seeds 42, 123, and 456 is reserved as an immediate extension of this work.
 
 ---
 
@@ -330,14 +337,7 @@ To be explicit about what you don't need to touch:
 
 ## 9. Complete dissertation checklist (do in this order)
 
-### Step A — Wait for seeds 123 and 456 (EC2)
-- [ ] Run `python train_prediction.py --seed 123` and record MAE values
-- [ ] Run `python train_breen_baseline.py --seed 123` and record Breen MAE
-- [ ] Run `python train_prediction.py --seed 456` and record MAE values
-- [ ] Run `python train_breen_baseline.py --seed 456` and record Breen MAE
-- [ ] Fill in the mean ± std table in Section 3 of this file
-
-### Step B — Download results to Mac
+### Step A — Download results to Mac
 - [ ] Download `prediction_training_history.png` from S3 or EC2
 - [ ] Download `prediction_examples.png` from S3 or EC2
 - [ ] Verify both images look correct (5 models visible, legend readable)
